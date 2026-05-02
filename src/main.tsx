@@ -73,6 +73,7 @@ function App() {
       <header className="site-header">
         <a className="brand" href="#top" aria-label="HERO GYM STUPAVA">
           <img src="/assets/brand/hero-gym-logo.png" alt="HERO GYM STUPAVA" />
+          <small>Najväčší gym v Stupave</small>
         </a>
         <button className="menu-button" onClick={() => setMenuOpen((value) => !value)} aria-label="Menu">
           {menuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -96,7 +97,6 @@ function App() {
             <img src="/assets/gallery/vchod.jpg" alt="" />
           </div>
           <div className="hero-content">
-            <p className="eyebrow">Najväčší gym v Stupave</p>
             <img className="hero-logo" src="/assets/brand/hero-gym-logo.png" alt="" />
             <h1 id="hero-title">HERO GYM STUPAVA</h1>
             <p className="hero-copy">
