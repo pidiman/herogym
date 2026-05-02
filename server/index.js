@@ -73,6 +73,24 @@ const defaultPricingSection = {
   ],
 };
 
+const defaultContactSection = {
+  heading: "Príď si zacvičiť alebo si rezervuj tréning online.",
+  notice: "Prosím, noste si vlastný visiaci zámok na skrinku.",
+  items: [
+    { label: "0910 171 222", href: "tel:+421910171222", icon: "phone", sort_order: 0 },
+    {
+      label: "Železničná 1043, Stupava",
+      href: "https://maps.google.com/?q=Železničná%201043%2C%20Stupava",
+      icon: "map",
+      sort_order: 1,
+    },
+    { label: "Rezervačný systém", href: "https://herogym.isportsystem.sk/", icon: "calendar", sort_order: 2 },
+    { label: "Instagram", href: "https://www.instagram.com/herogymstupava/", icon: "instagram", sort_order: 3 },
+    { label: "Facebook", href: "https://www.facebook.com/herogymstupava/", icon: "facebook", sort_order: 4 },
+    { label: "Napísať správu", href: "sms:+421910171222", icon: "message", sort_order: 5 },
+  ],
+};
+
 async function initDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_users (
@@ -125,6 +143,27 @@ async function initDatabase() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contact_section (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      heading TEXT NOT NULL,
+      notice TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contact_items (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      href TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT 'phone',
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [adminUser]);
   if (existing.rowCount === 0) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -161,6 +200,26 @@ async function initDatabase() {
         item.label,
         item.value,
         item.detail,
+        item.sort_order,
+      ]);
+    }
+  }
+
+  const contactSection = await pool.query("SELECT id FROM contact_section WHERE id = 1");
+  if (contactSection.rowCount === 0) {
+    await pool.query("INSERT INTO contact_section (id, heading, notice) VALUES (1, $1, $2)", [
+      defaultContactSection.heading,
+      defaultContactSection.notice,
+    ]);
+  }
+
+  const contactItems = await pool.query("SELECT id FROM contact_items LIMIT 1");
+  if (contactItems.rowCount === 0) {
+    for (const item of defaultContactSection.items) {
+      await pool.query("INSERT INTO contact_items (label, href, icon, sort_order) VALUES ($1, $2, $3, $4)", [
+        item.label,
+        item.href,
+        item.icon,
         item.sort_order,
       ]);
     }
@@ -233,6 +292,30 @@ async function getPricingSection() {
 
 app.get("/api/pricing-section", async (_req, res) => {
   res.json(await getPricingSection());
+});
+
+async function getContactSection() {
+  const sectionResult = await pool.query("SELECT heading, notice FROM contact_section WHERE id = 1");
+  const itemsResult = await pool.query(
+    "SELECT id, label, href, icon, sort_order FROM contact_items ORDER BY sort_order ASC, id ASC",
+  );
+  const section = sectionResult.rows[0] || defaultContactSection;
+
+  return {
+    heading: section.heading,
+    notice: section.notice,
+    items: itemsResult.rows.map((item) => ({
+      id: item.id,
+      label: item.label,
+      href: item.href,
+      icon: item.icon,
+      sortOrder: item.sort_order,
+    })),
+  };
+}
+
+app.get("/api/contact-section", async (_req, res) => {
+  res.json(await getContactSection());
 });
 
 app.post("/api/admin/login", async (req, res) => {
@@ -390,6 +473,75 @@ app.put("/api/admin/pricing-section", authenticate, async (req, res) => {
     await client.query("ROLLBACK");
     console.error(error);
     res.status(500).json({ message: "Cenník sa nepodarilo uložiť." });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/api/admin/contact-section", authenticate, async (_req, res) => {
+  res.json(await getContactSection());
+});
+
+app.put("/api/admin/contact-section", authenticate, async (req, res) => {
+  const heading = String(req.body?.heading || "").trim();
+  const notice = String(req.body?.notice || "").trim();
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+  if (!heading || !notice) {
+    return res.status(400).json({ message: "Hlavný text a poznámka sú povinné." });
+  }
+
+  if (items.length === 0) {
+    return res.status(400).json({ message: "Pridaj aspoň jednu kontaktnú bunku." });
+  }
+
+  const normalizedItems = items.map((item, index) => ({
+    id: Number.isInteger(item.id) && item.id > 0 ? item.id : null,
+    label: String(item.label || "").trim(),
+    href: String(item.href || "").trim(),
+    icon: String(item.icon || "phone").trim(),
+    sortOrder: Number.isInteger(item.sortOrder) ? item.sortOrder : index,
+  }));
+
+  if (normalizedItems.some((item) => !item.label || !item.href)) {
+    return res.status(400).json({ message: "Každá bunka musí mať text a odkaz." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO contact_section (id, heading, notice) VALUES (1, $1, $2) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, notice = EXCLUDED.notice, updated_at = NOW()",
+      [heading, notice],
+    );
+
+    const keptIds = [];
+    for (const [index, item] of normalizedItems.entries()) {
+      if (item.id) {
+        const result = await client.query(
+          "UPDATE contact_items SET label = $1, href = $2, icon = $3, sort_order = $4, updated_at = NOW() WHERE id = $5 RETURNING id",
+          [item.label, item.href, item.icon, index, item.id],
+        );
+        if (result.rows[0]) {
+          keptIds.push(result.rows[0].id);
+          continue;
+        }
+      }
+
+      const result = await client.query(
+        "INSERT INTO contact_items (label, href, icon, sort_order) VALUES ($1, $2, $3, $4) RETURNING id",
+        [item.label, item.href, item.icon, index],
+      );
+      keptIds.push(result.rows[0].id);
+    }
+
+    await client.query("DELETE FROM contact_items WHERE NOT (id = ANY($1::int[]))", [keptIds]);
+    await client.query("COMMIT");
+    res.json(await getContactSection());
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ message: "Kontakt sa nepodarilo uložiť." });
   } finally {
     client.release();
   }

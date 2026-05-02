@@ -67,11 +67,43 @@ type PricingSection = {
   items: PricingItem[];
 };
 
+const contactIconMap = {
+  phone: Phone,
+  map: MapPin,
+  calendar: CalendarDays,
+  instagram: Instagram,
+  facebook: Facebook,
+  message: MessageCircle,
+} as const;
+
+type ContactItem = {
+  id?: number;
+  label: string;
+  href: string;
+  icon: keyof typeof contactIconMap;
+  sortOrder?: number;
+};
+
+type ContactSection = {
+  heading: string;
+  notice: string;
+  items: ContactItem[];
+};
+
 const iconLabels: Record<keyof typeof iconMap, string> = {
   dumbbell: "Činka",
   calendar: "Kalendár",
   sparkles: "Regenerácia",
   sun: "Slnko",
+};
+
+const contactIconLabels: Record<keyof typeof contactIconMap, string> = {
+  phone: "Telefón",
+  map: "Mapa",
+  calendar: "Kalendár",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  message: "Správa",
 };
 
 const defaultTrainingSection: TrainingSection = {
@@ -114,6 +146,23 @@ const defaultPricingSection: PricingSection = {
   ],
 };
 
+const defaultContactSection: ContactSection = {
+  heading: "Príď si zacvičiť alebo si rezervuj tréning online.",
+  notice: "Prosím, noste si vlastný visiaci zámok na skrinku.",
+  items: [
+    { label: "0910 171 222", href: "tel:+421910171222", icon: "phone" },
+    {
+      label: "Železničná 1043, Stupava",
+      href: "https://maps.google.com/?q=Železničná%201043%2C%20Stupava",
+      icon: "map",
+    },
+    { label: "Rezervačný systém", href: reservationUrl, icon: "calendar" },
+    { label: "Instagram", href: "https://www.instagram.com/herogymstupava/", icon: "instagram" },
+    { label: "Facebook", href: "https://www.facebook.com/herogymstupava/", icon: "facebook" },
+    { label: "Napísať správu", href: "sms:+421910171222", icon: "message" },
+  ],
+};
+
 function Root() {
   const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
 
@@ -129,6 +178,7 @@ function MarketingSite() {
   const [activeTag, setActiveTag] = useState("Všetko");
   const [trainingSection, setTrainingSection] = useState<TrainingSection>(defaultTrainingSection);
   const [pricingSection, setPricingSection] = useState<PricingSection>(defaultPricingSection);
+  const [contactSection, setContactSection] = useState<ContactSection>(defaultContactSection);
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
   const filteredGallery = activeTag === "Všetko" ? gallery : gallery.filter((item) => item.tag === activeTag);
 
@@ -144,6 +194,13 @@ function MarketingSite() {
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: PricingSection) => setPricingSection(data))
       .catch(() => setPricingSection(defaultPricingSection));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/contact-section")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: ContactSection) => setContactSection(data))
+      .catch(() => setContactSection(defaultContactSection));
   }, []);
 
   return (
@@ -287,28 +344,19 @@ function MarketingSite() {
         <section className="section contact-section" id="kontakt">
           <div>
             <p className="eyebrow">Kontakt</p>
-            <h2>Príď si zacvičiť alebo si rezervuj tréning online.</h2>
-            <p className="notice">Prosím, noste si vlastný visiaci zámok na skrinku.</p>
+            <h2>{contactSection.heading}</h2>
+            <p className="notice">{contactSection.notice}</p>
           </div>
           <div className="contact-panel">
-            <a href="tel:+421910171222">
-              <Phone size={20} /> 0910 171 222
-            </a>
-            <a href="https://maps.google.com/?q=Železničná%201043%2C%20Stupava" target="_blank" rel="noreferrer">
-              <MapPin size={20} /> Železničná 1043, Stupava
-            </a>
-            <a href={reservationUrl} target="_blank" rel="noreferrer">
-              <CalendarDays size={20} /> Rezervačný systém
-            </a>
-            <a href="https://www.instagram.com/herogymstupava/" target="_blank" rel="noreferrer">
-              <Instagram size={20} /> Instagram
-            </a>
-            <a href="https://www.facebook.com/herogymstupava/" target="_blank" rel="noreferrer">
-              <Facebook size={20} /> Facebook
-            </a>
-            <a href="sms:+421910171222">
-              <MessageCircle size={20} /> Napísať správu
-            </a>
+            {contactSection.items.map((item) => {
+              const Icon = contactIconMap[item.icon] || Phone;
+              const external = item.href.startsWith("http");
+              return (
+                <a href={item.href} key={item.id || item.label} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>
+                  <Icon size={20} /> {item.label}
+                </a>
+              );
+            })}
           </div>
         </section>
       </main>
@@ -328,14 +376,18 @@ function AdminPage() {
   const [message, setMessage] = useState("");
   const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(defaultTrainingSection);
   const [pricingDraft, setPricingDraft] = useState<PricingSection>(defaultPricingSection);
-  const [activeAdminSection, setActiveAdminSection] = useState<"training" | "pricing" | null>(null);
+  const [contactDraft, setContactDraft] = useState<ContactSection>(defaultContactSection);
+  const [activeAdminSection, setActiveAdminSection] = useState<"training" | "pricing" | "contact" | null>(null);
   const [trainingMessage, setTrainingMessage] = useState("");
   const [pricingMessage, setPricingMessage] = useState("");
+  const [contactMessage, setContactMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTrainingLoading, setIsTrainingLoading] = useState(false);
   const [isTrainingSaving, setIsTrainingSaving] = useState(false);
   const [isPricingLoading, setIsPricingLoading] = useState(false);
   const [isPricingSaving, setIsPricingSaving] = useState(false);
+  const [isContactLoading, setIsContactLoading] = useState(false);
+  const [isContactSaving, setIsContactSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("herogym_admin_token");
@@ -357,6 +409,7 @@ function AdminPage() {
     if (adminName) {
       void loadTrainingSection();
       void loadPricingSection();
+      void loadContactSection();
     }
   }, [adminName]);
 
@@ -409,6 +462,30 @@ function AdminPage() {
       setPricingMessage(error instanceof Error ? error.message : "Cenník sa nepodarilo načítať.");
     } finally {
       setIsPricingLoading(false);
+    }
+  }
+
+  async function loadContactSection() {
+    setIsContactLoading(true);
+    setContactMessage("");
+
+    try {
+      const response = await fetch("/api/admin/contact-section", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Kontakt sa nepodarilo načítať.");
+      }
+
+      setContactDraft(data);
+    } catch (error) {
+      setContactMessage(error instanceof Error ? error.message : "Kontakt sa nepodarilo načítať.");
+    } finally {
+      setIsContactLoading(false);
     }
   }
 
@@ -563,6 +640,63 @@ function AdminPage() {
     }
   }
 
+  function updateContactItem(index: number, nextItem: ContactItem) {
+    setContactDraft((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => (itemIndex === index ? nextItem : item)),
+    }));
+  }
+
+  function addContactItem() {
+    setContactDraft((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        {
+          label: "Nový kontakt",
+          href: "https://",
+          icon: "phone",
+        },
+      ],
+    }));
+  }
+
+  function removeContactItem(index: number) {
+    setContactDraft((current) => ({
+      ...current,
+      items: current.items.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
+  async function saveContactSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsContactSaving(true);
+    setContactMessage("");
+
+    try {
+      const response = await fetch("/api/admin/contact-section", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(contactDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Kontakt sa nepodarilo uložiť.");
+      }
+
+      setContactDraft(data);
+      setContactMessage("Kontakt je uložený.");
+    } catch (error) {
+      setContactMessage(error instanceof Error ? error.message : "Kontakt sa nepodarilo uložiť.");
+    } finally {
+      setIsContactSaving(false);
+    }
+  }
+
   return (
     <main className="admin-page">
       <div className="admin-bg" aria-hidden="true">
@@ -596,6 +730,13 @@ function AdminPage() {
                 onClick={() => setActiveAdminSection((current) => (current === "pricing" ? null : "pricing"))}
               >
                 Cenník
+              </button>
+              <button
+                className={activeAdminSection === "contact" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveAdminSection((current) => (current === "contact" ? null : "contact"))}
+              >
+                Kontakt
               </button>
             </div>
 
@@ -722,6 +863,76 @@ function AdminPage() {
                 {pricingMessage ? <p className="admin-message">{pricingMessage}</p> : null}
                 <button className="button primary" disabled={isPricingSaving || isPricingLoading} type="submit">
                   <Save size={18} /> {isPricingSaving ? "Ukladám..." : "Uložiť cenník"}
+                </button>
+              </form>
+            ) : null}
+
+            {activeAdminSection === "contact" ? (
+              <form className="admin-editor-form" onSubmit={saveContactSection}>
+                <label>
+                  Hlavný text
+                  <input
+                    value={contactDraft.heading}
+                    onChange={(event) => setContactDraft((current) => ({ ...current, heading: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Poznámka
+                  <input
+                    value={contactDraft.notice}
+                    onChange={(event) => setContactDraft((current) => ({ ...current, notice: event.target.value }))}
+                  />
+                </label>
+                <div className="admin-editor-heading">
+                  <h2>Bunky</h2>
+                  <button className="button ghost" type="button" onClick={addContactItem}>
+                    <Plus size={18} /> Pridať bunku
+                  </button>
+                </div>
+                <div className="admin-cards-editor">
+                  {contactDraft.items.map((item, index) => (
+                    <article className="admin-card-editor" key={item.id || index}>
+                      <div className="admin-card-editor-head">
+                        <strong>Bunka {index + 1}</strong>
+                        <button type="button" onClick={() => removeContactItem(index)} aria-label="Odstrániť bunku">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                      <label>
+                        Text
+                        <input
+                          value={item.label}
+                          onChange={(event) => updateContactItem(index, { ...item, label: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Odkaz
+                        <input
+                          value={item.href}
+                          onChange={(event) => updateContactItem(index, { ...item, href: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Ikona
+                        <select
+                          value={item.icon}
+                          onChange={(event) =>
+                            updateContactItem(index, { ...item, icon: event.target.value as keyof typeof contactIconMap })
+                          }
+                        >
+                          {Object.entries(contactIconLabels).map(([value, label]) => (
+                            <option value={value} key={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </article>
+                  ))}
+                </div>
+                {contactMessage ? <p className="admin-message">{contactMessage}</p> : null}
+                <button className="button primary" disabled={isContactSaving || isContactLoading} type="submit">
+                  <Save size={18} /> {isContactSaving ? "Ukladám..." : "Uložiť kontakt"}
                 </button>
               </form>
             ) : null}

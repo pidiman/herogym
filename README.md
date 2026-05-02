@@ -39,7 +39,7 @@ docker compose up -d --build
 Web bude dostupný na porte z `APP_PORT`, predvolene `8091`.
 V spoločnom Admineri použi server `herogym-db`, používateľa a heslo z `.env`.
 Admin sekcia je dostupná iba priamou URL `https://hg.pidiman.sk/admin`; vo verejnej stránke nie je prelinkovaná.
-Po prihlásení vie upravovať sekcie `Tréningy` a `Cenník`.
+Po prihlásení vie upravovať sekcie `Tréningy`, `Cenník` a `Kontakt`.
 
 Ak už máš `.env` vytvorený zo staršej verzie projektu, doplň:
 
