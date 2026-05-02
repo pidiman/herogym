@@ -30,7 +30,7 @@ Adminer nie je súčasťou tohto compose, počíta sa so spoločným Adminer kon
 
 ```bash
 cp .env.example .env
-docker network create adminer
+docker network create db-shared
 docker compose up -d --build
 ```
 
@@ -65,7 +65,7 @@ HTTP/2 Support: zapnúť
 ```
 
 Databáza sa von nepublikuje. Je dostupná iba v Docker sieťach ako `herogym-db`.
-Spoločný Adminer musí byť na rovnakej Docker mašine alebo pripojený do siete nastavenej cez `ADMINER_NETWORK`.
+Spoločný Adminer musí byť na rovnakej Docker mašine alebo pripojený do siete nastavenej cez `ADMINER_NETWORK`, predvolene `db-shared`.
 
 ## GitHub
 

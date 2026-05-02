@@ -40,7 +40,7 @@ networks:
     driver: bridge
   adminer:
     external: true
-    name: ${ADMINER_NETWORK:-adminer}
+    name: ${ADMINER_NETWORK:-db-shared}
 
 volumes:
   herogym-db-data:
