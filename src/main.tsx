@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowUpRight,
@@ -62,7 +62,17 @@ const services = [
   },
 ];
 
-function App() {
+function Root() {
+  const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
+
+  if (isAdminPage) {
+    return <AdminPage />;
+  }
+
+  return <MarketingSite />;
+}
+
+function MarketingSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Všetko");
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
@@ -243,8 +253,113 @@ function App() {
   );
 }
 
+function AdminPage() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("herogym_admin_token");
+    if (!token) {
+      return;
+    }
+
+    fetch("/api/admin/me", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: { username: string }) => setAdminName(data.username))
+      .catch(() => localStorage.removeItem("herogym_admin_token"));
+  }, []);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Prihlásenie sa nepodarilo.");
+      }
+
+      localStorage.setItem("herogym_admin_token", data.token);
+      setAdminName(data.username);
+      setPassword("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Prihlásenie sa nepodarilo.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("herogym_admin_token");
+    setAdminName("");
+    setUsername("");
+    setPassword("");
+  }
+
+  return (
+    <main className="admin-page">
+      <div className="admin-bg" aria-hidden="true">
+        <img src="/assets/gallery/fitnes-2.jpg" alt="" />
+      </div>
+      <section className="admin-card" aria-labelledby="admin-title">
+        <img className="admin-logo" src="/assets/brand/hero-gym-logo.png" alt="HERO GYM STUPAVA" />
+        <p className="eyebrow">Admin sekcia</p>
+        {adminName ? (
+          <div className="admin-dashboard">
+            <h1 id="admin-title">Prihlásený</h1>
+            <p>Vitaj, {adminName}. Admin rozhranie je pripravené na budúce funkcie.</p>
+            <button className="button primary" type="button" onClick={logout}>
+              Odhlásiť
+            </button>
+          </div>
+        ) : (
+          <>
+            <h1 id="admin-title">Prihlásenie</h1>
+            <p className="admin-copy">Zadaj meno a heslo uložené v databáze.</p>
+            <form className="admin-form" onSubmit={handleSubmit}>
+              <label>
+                Meno
+                <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+              </label>
+              <label>
+                Heslo
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                />
+              </label>
+              {message ? <p className="admin-message">{message}</p> : null}
+              <button className="button primary" disabled={isLoading} type="submit">
+                {isLoading ? "Overujem..." : "Prihlásiť"}
+              </button>
+            </form>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>,
 );

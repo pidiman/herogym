@@ -8,6 +8,7 @@ Moderná responzívna web stránka pre fitness centrum HERO GYM Stupava.
 - React
 - TypeScript
 - Moderné CSS s responzívnym layoutom
+- Skrytá admin sekcia na `/admin`
 - Lokálne assety z galérie `herogymstupava.sk`
 
 ## Lokálne spustenie
@@ -26,6 +27,7 @@ npm run build
 ## Docker
 
 Projekt obsahuje samostatný web server a samostatný PostgreSQL server pripravený na budúce funkcie.
+Admin login používa samostatný API kontajner a PostgreSQL tabuľku `admin_users`.
 Adminer nie je súčasťou tohto compose, počíta sa so spoločným Adminer kontajnerom na externej sieti.
 
 ```bash
@@ -36,6 +38,17 @@ docker compose up -d --build
 
 Web bude dostupný na porte z `APP_PORT`, predvolene `8091`.
 V spoločnom Admineri použi server `herogym-db`, používateľa a heslo z `.env`.
+Admin sekcia je dostupná iba priamou URL `https://hg.pidiman.sk/admin`; vo verejnej stránke nie je prelinkovaná.
+
+Ak už máš `.env` vytvorený zo staršej verzie projektu, doplň:
+
+```env
+JWT_SECRET=nahodny_retazec_minimalne_32_znakov
+ADMIN_USER=admin
+ADMIN_PASSWORD=sem_daj_silne_admin_heslo
+```
+
+Prvý admin používateľ sa vytvorí automaticky pri štarte API, ak ešte neexistuje.
 
 ## Nginx Proxy Manager
 
