@@ -61,27 +61,13 @@ button {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.8rem;
-  font-weight: 900;
-  letter-spacing: 0;
+  width: clamp(9rem, 18vw, 14rem);
 }
 
-.brand small {
-  display: block;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.brand-mark {
-  display: grid;
-  width: 2.8rem;
-  height: 2.8rem;
-  place-items: center;
-  border: 1px solid rgba(64, 143, 244, 0.58);
-  background: linear-gradient(145deg, #408ff4, #1154ab);
-  font-weight: 950;
+.brand img {
+  width: 100%;
+  height: auto;
+  filter: invert(1) brightness(1.45) contrast(1.08);
 }
 
 .nav {
@@ -187,11 +173,20 @@ p {
 }
 
 h1 {
-  max-width: 12ch;
-  margin-bottom: 1.2rem;
-  font-size: clamp(3.3rem, 11vw, 8.8rem);
-  line-height: 0.86;
-  font-weight: 950;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.hero-logo {
+  width: min(48rem, 88vw);
+  height: auto;
+  margin: 0 0 1.6rem;
+  filter: invert(1) brightness(1.55) contrast(1.08);
 }
 
 h2 {
