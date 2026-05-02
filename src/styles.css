@@ -72,11 +72,13 @@ button {
 }
 
 .brand small {
+  width: 100%;
   margin-top: 0.18rem;
   color: var(--amber);
   font-size: clamp(0.58rem, 1.2vw, 0.72rem);
   font-weight: 900;
   line-height: 1.1;
+  text-align: center;
   text-transform: uppercase;
 }
 
