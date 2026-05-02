@@ -530,6 +530,10 @@ footer {
   backdrop-filter: blur(18px);
 }
 
+.admin-card.admin-editor {
+  width: min(100%, 64rem);
+}
+
 .admin-logo {
   width: min(18rem, 80vw);
   margin-bottom: 1.4rem;
@@ -608,6 +612,112 @@ footer {
   gap: 1rem;
 }
 
+.admin-toolbar {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-toolbar .button {
+  flex: 0 0 auto;
+}
+
+.admin-editor-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-editor-form label,
+.admin-card-editor label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-editor-form input,
+.admin-editor-form textarea,
+.admin-card-editor input,
+.admin-card-editor textarea,
+.admin-card-editor select {
+  width: 100%;
+  min-height: 3.1rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: 0;
+  padding: 0.8rem 0.95rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-editor-form textarea,
+.admin-card-editor textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.admin-editor-form input:focus,
+.admin-editor-form textarea:focus,
+.admin-card-editor input:focus,
+.admin-card-editor textarea:focus,
+.admin-card-editor select:focus {
+  border-color: rgba(64, 143, 244, 0.82);
+}
+
+.admin-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.admin-editor-heading h2 {
+  margin: 0;
+  font-size: clamp(1.4rem, 4vw, 2rem);
+}
+
+.admin-cards-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.admin-card-editor {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-card-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-card-editor-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.admin-card-editor-head button:hover {
+  border-color: rgba(64, 143, 244, 0.75);
+}
+
 @media (max-width: 960px) {
   .menu-button {
     display: inline-flex;
@@ -665,6 +775,16 @@ footer {
 
   .gallery-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-toolbar,
+  .admin-editor-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-cards-editor {
+    grid-template-columns: 1fr;
   }
 }
 

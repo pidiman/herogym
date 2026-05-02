@@ -11,8 +11,11 @@ import {
   Menu,
   MessageCircle,
   Phone,
+  Plus,
+  Save,
   Sparkles,
   Sun,
+  Trash2,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -39,28 +42,61 @@ const priceItems = [
   { label: "3 mesiace", value: "117€", detail: "Permanentka" },
 ];
 
-const services = [
-  {
-    icon: Dumbbell,
-    title: "Osobné tréningy",
-    text: "Konzultácie, ceny a časové možnosti poskytuje recepcia alebo správy.",
-  },
-  {
-    icon: CalendarDays,
-    title: "Skupinové tréningy",
-    text: "Na skupinové tréningy je potrebné prihlásenie cez rezervačný systém.",
-  },
-  {
-    icon: Sparkles,
-    title: "Masáže",
-    text: "Klasická 60 min. 40€, klasická 90 min. 55€, športová 60 min. 40€.",
-  },
-  {
-    icon: Sun,
-    title: "Solárium",
-    text: "Cena 0,60€ za minútu.",
-  },
-];
+const iconMap = {
+  dumbbell: Dumbbell,
+  calendar: CalendarDays,
+  sparkles: Sparkles,
+  sun: Sun,
+} as const;
+
+type TrainingCard = {
+  id?: number;
+  title: string;
+  body: string;
+  icon: keyof typeof iconMap;
+  sortOrder?: number;
+};
+
+type TrainingSection = {
+  heading: string;
+  body: string;
+  cards: TrainingCard[];
+};
+
+const iconLabels: Record<keyof typeof iconMap, string> = {
+  dumbbell: "Činka",
+  calendar: "Kalendár",
+  sparkles: "Regenerácia",
+  sun: "Slnko",
+};
+
+const defaultTrainingSection: TrainingSection = {
+  heading: "Vyber si tréning, ktorý sedí tvojmu rytmu.",
+  body:
+    "HERO GYM spája fitnes, skupinové tréningy, regeneráciu a recepčné zázemie v jednom priestore. Skupinové hodiny sa prihlasujú cez rezervačný systém.",
+  cards: [
+    {
+      title: "Osobné tréningy",
+      body: "Konzultácie, ceny a časové možnosti poskytuje recepcia alebo správy.",
+      icon: "dumbbell",
+    },
+    {
+      title: "Skupinové tréningy",
+      body: "Na skupinové tréningy je potrebné prihlásenie cez rezervačný systém.",
+      icon: "calendar",
+    },
+    {
+      title: "Masáže",
+      body: "Klasická 60 min. 40€, klasická 90 min. 55€, športová 60 min. 40€.",
+      icon: "sparkles",
+    },
+    {
+      title: "Solárium",
+      body: "Cena 0,60€ za minútu.",
+      icon: "sun",
+    },
+  ],
+};
 
 function Root() {
   const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
@@ -75,8 +111,16 @@ function Root() {
 function MarketingSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Všetko");
+  const [trainingSection, setTrainingSection] = useState<TrainingSection>(defaultTrainingSection);
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
   const filteredGallery = activeTag === "Všetko" ? gallery : gallery.filter((item) => item.tag === activeTag);
+
+  useEffect(() => {
+    fetch("/api/training-section")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: TrainingSection) => setTrainingSection(data))
+      .catch(() => setTrainingSection(defaultTrainingSection));
+  }, []);
 
   return (
     <>
@@ -141,20 +185,20 @@ function MarketingSite() {
         <section className="section split" id="treningy">
           <div>
             <p className="eyebrow">Tréningy a služby</p>
-            <h2>Vyber si tréning, ktorý sedí tvojmu rytmu.</h2>
-            <p>
-              HERO GYM spája fitnes, skupinové tréningy, regeneráciu a recepčné zázemie v jednom priestore.
-              Skupinové hodiny sa prihlasujú cez rezervačný systém.
-            </p>
+            <h2>{trainingSection.heading}</h2>
+            <p>{trainingSection.body}</p>
           </div>
           <div className="service-grid">
-            {services.map((service) => (
-              <article className="service-card" key={service.title}>
-                <service.icon size={26} />
-                <h3>{service.title}</h3>
-                <p>{service.text}</p>
-              </article>
-            ))}
+            {trainingSection.cards.map((service) => {
+              const Icon = iconMap[service.icon] || Dumbbell;
+              return (
+                <article className="service-card" key={service.id || service.title}>
+                  <Icon size={26} />
+                  <h3>{service.title}</h3>
+                  <p>{service.body}</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 
@@ -258,7 +302,11 @@ function AdminPage() {
   const [password, setPassword] = useState("");
   const [adminName, setAdminName] = useState("");
   const [message, setMessage] = useState("");
+  const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(defaultTrainingSection);
+  const [trainingMessage, setTrainingMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isTrainingLoading, setIsTrainingLoading] = useState(false);
+  const [isTrainingSaving, setIsTrainingSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("herogym_admin_token");
@@ -275,6 +323,40 @@ function AdminPage() {
       .then((data: { username: string }) => setAdminName(data.username))
       .catch(() => localStorage.removeItem("herogym_admin_token"));
   }, []);
+
+  useEffect(() => {
+    if (adminName) {
+      void loadTrainingSection();
+    }
+  }, [adminName]);
+
+  function getToken() {
+    return localStorage.getItem("herogym_admin_token") || "";
+  }
+
+  async function loadTrainingSection() {
+    setIsTrainingLoading(true);
+    setTrainingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/training-section", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Sekciu sa nepodarilo načítať.");
+      }
+
+      setTrainingDraft(data);
+    } catch (error) {
+      setTrainingMessage(error instanceof Error ? error.message : "Sekciu sa nepodarilo načítať.");
+    } finally {
+      setIsTrainingLoading(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -312,21 +394,151 @@ function AdminPage() {
     setPassword("");
   }
 
+  function updateCard(index: number, nextCard: TrainingCard) {
+    setTrainingDraft((current) => ({
+      ...current,
+      cards: current.cards.map((card, cardIndex) => (cardIndex === index ? nextCard : card)),
+    }));
+  }
+
+  function addCard() {
+    setTrainingDraft((current) => ({
+      ...current,
+      cards: [
+        ...current.cards,
+        {
+          title: "Nová bunka",
+          body: "Doplň text bunky.",
+          icon: "dumbbell",
+        },
+      ],
+    }));
+  }
+
+  function removeCard(index: number) {
+    setTrainingDraft((current) => ({
+      ...current,
+      cards: current.cards.filter((_, cardIndex) => cardIndex !== index),
+    }));
+  }
+
+  async function saveTrainingSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsTrainingSaving(true);
+    setTrainingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/training-section", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(trainingDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Sekciu sa nepodarilo uložiť.");
+      }
+
+      setTrainingDraft(data);
+      setTrainingMessage("Sekcia tréningy je uložená.");
+    } catch (error) {
+      setTrainingMessage(error instanceof Error ? error.message : "Sekciu sa nepodarilo uložiť.");
+    } finally {
+      setIsTrainingSaving(false);
+    }
+  }
+
   return (
     <main className="admin-page">
       <div className="admin-bg" aria-hidden="true">
         <img src="/assets/gallery/fitnes-2.jpg" alt="" />
       </div>
-      <section className="admin-card" aria-labelledby="admin-title">
+      <section className={adminName ? "admin-card admin-editor" : "admin-card"} aria-labelledby="admin-title">
         <img className="admin-logo" src="/assets/brand/hero-gym-logo.png" alt="HERO GYM STUPAVA" />
         <p className="eyebrow">Admin sekcia</p>
         {adminName ? (
           <div className="admin-dashboard">
-            <h1 id="admin-title">Prihlásený</h1>
-            <p>Vitaj, {adminName}. Admin rozhranie je pripravené na budúce funkcie.</p>
-            <button className="button primary" type="button" onClick={logout}>
-              Odhlásiť
-            </button>
+            <div className="admin-toolbar">
+              <div>
+                <h1 id="admin-title">Tréningy</h1>
+                <p>Vitaj, {adminName}. Uprav obsah verejnej sekcie tréningy.</p>
+              </div>
+              <button className="button ghost" type="button" onClick={logout}>
+                Odhlásiť
+              </button>
+            </div>
+            <form className="admin-editor-form" onSubmit={saveTrainingSection}>
+              <label>
+                Hlavný text
+                <input
+                  value={trainingDraft.heading}
+                  onChange={(event) => setTrainingDraft((current) => ({ ...current, heading: event.target.value }))}
+                />
+              </label>
+              <label>
+                Vedľajší text
+                <textarea
+                  value={trainingDraft.body}
+                  onChange={(event) => setTrainingDraft((current) => ({ ...current, body: event.target.value }))}
+                  rows={4}
+                />
+              </label>
+              <div className="admin-editor-heading">
+                <h2>Bunky</h2>
+                <button className="button ghost" type="button" onClick={addCard}>
+                  <Plus size={18} /> Pridať bunku
+                </button>
+              </div>
+              <div className="admin-cards-editor">
+                {trainingDraft.cards.map((card, index) => (
+                  <article className="admin-card-editor" key={card.id || index}>
+                    <div className="admin-card-editor-head">
+                      <strong>Bunka {index + 1}</strong>
+                      <button type="button" onClick={() => removeCard(index)} aria-label="Odstrániť bunku">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                    <label>
+                      Názov
+                      <input
+                        value={card.title}
+                        onChange={(event) => updateCard(index, { ...card, title: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Text
+                      <textarea
+                        value={card.body}
+                        onChange={(event) => updateCard(index, { ...card, body: event.target.value })}
+                        rows={4}
+                      />
+                    </label>
+                    <label>
+                      Ikona
+                      <select
+                        value={card.icon}
+                        onChange={(event) =>
+                          updateCard(index, { ...card, icon: event.target.value as keyof typeof iconMap })
+                        }
+                      >
+                        {Object.entries(iconLabels).map(([value, label]) => (
+                          <option value={value} key={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </article>
+                ))}
+              </div>
+              {trainingMessage ? <p className="admin-message">{trainingMessage}</p> : null}
+              <button className="button primary" disabled={isTrainingSaving || isTrainingLoading} type="submit">
+                <Save size={18} /> {isTrainingSaving ? "Ukladám..." : "Uložiť tréningy"}
+              </button>
+            </form>
           </div>
         ) : (
           <>
