@@ -217,6 +217,7 @@ function MarketingSite() {
           <a href="#treningy">Tréningy</a>
           <a href="#cennik">Cenník</a>
           <a href="#galeria">Galéria</a>
+          <a href="#o-nas">O nás</a>
           <a href="#kontakt">Kontakt</a>
           <a className="nav-cta" href={reservationUrl} target="_blank" rel="noreferrer">
             Rezervovať
@@ -338,6 +339,22 @@ function MarketingSite() {
                 <figcaption>{item.title}</figcaption>
               </figure>
             ))}
+          </div>
+        </section>
+
+        <section className="section about-section" id="o-nas">
+          <div>
+            <p className="eyebrow">O nás</p>
+            <h2>HERO GYM STUPAVA</h2>
+          </div>
+          <div className="about-copy">
+            <p>Z malého káčatka Cevagym, ktoré dovŕšilo 5 rokov sa stala dospelá labuť HERO GYM.</p>
+            <p>
+              Sme radi že Vás môžme privítať u nás „DOMA“, pretože dávame do toho všetko a vždy budeme, kým tu
+              budete vy pre nás.
+            </p>
+            <p>Tešíme sa na každú jednu Vašu návštevu. Radi Vám spravíme voňavú kávu.</p>
+            <p>Máte na výber z rôznych predtréningových ale aj potréningových nápojov.</p>
           </div>
         </section>
 

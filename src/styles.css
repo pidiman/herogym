@@ -443,6 +443,26 @@ h3 {
   font-weight: 900;
 }
 
+.about-section {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  border-top: 1px solid var(--line);
+  background: #0e1014;
+}
+
+.about-copy {
+  display: grid;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  line-height: 1.7;
+}
+
+.about-copy p {
+  margin: 0;
+}
+
 .contact-section {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
@@ -780,6 +800,7 @@ footer {
   .quick-strip,
   .split,
   .training-band,
+  .about-section,
   .contact-section {
     grid-template-columns: 1fr;
   }
