@@ -107,7 +107,7 @@ function MarketingSite() {
             <img src="/assets/gallery/vchod.jpg" alt="" />
           </div>
           <div className="hero-content">
-            <img className="hero-logo" src="/assets/brand/hero-gym-logo.png" alt="" />
+            <img className="hero-logo" src="/assets/brand/hero-gym-logo-tight.png" alt="" />
             <h1 id="hero-title">HERO GYM STUPAVA</h1>
             <p className="hero-copy">
               Moderný priestor pre silový tréning, osobné tréningy, skupinové hodiny, masáže a solárium.
