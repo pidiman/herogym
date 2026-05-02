@@ -61,6 +61,18 @@ const defaultTrainingSection = {
   ],
 };
 
+const defaultPricingSection = {
+  heading: "Jasné vstupy bez hľadania v tabuľkách.",
+  items: [
+    { label: "Jednorazový vstup", value: "7€", detail: "Fitnes", sort_order: 0 },
+    { label: "10 vstupov", value: "45€", detail: "Vstupová karta", sort_order: 1 },
+    { label: "25 vstupov", value: "100€", detail: "Vstupová karta", sort_order: 2 },
+    { label: "1 mesiac", value: "42€", detail: "Permanentka", sort_order: 3 },
+    { label: "1 mesiac do 18 rokov", value: "38€", detail: "Zvýhodnená permanentka", sort_order: 4 },
+    { label: "3 mesiace", value: "117€", detail: "Permanentka", sort_order: 5 },
+  ],
+};
+
 async function initDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_users (
@@ -93,6 +105,26 @@ async function initDatabase() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pricing_section (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      heading TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pricing_items (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      value TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [adminUser]);
   if (existing.rowCount === 0) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -114,6 +146,23 @@ async function initDatabase() {
         "INSERT INTO training_cards (title, body, icon, sort_order) VALUES ($1, $2, $3, $4)",
         [card.title, card.body, card.icon, card.sort_order],
       );
+    }
+  }
+
+  const pricingSection = await pool.query("SELECT id FROM pricing_section WHERE id = 1");
+  if (pricingSection.rowCount === 0) {
+    await pool.query("INSERT INTO pricing_section (id, heading) VALUES (1, $1)", [defaultPricingSection.heading]);
+  }
+
+  const pricingItems = await pool.query("SELECT id FROM pricing_items LIMIT 1");
+  if (pricingItems.rowCount === 0) {
+    for (const item of defaultPricingSection.items) {
+      await pool.query("INSERT INTO pricing_items (label, value, detail, sort_order) VALUES ($1, $2, $3, $4)", [
+        item.label,
+        item.value,
+        item.detail,
+        item.sort_order,
+      ]);
     }
   }
 }
@@ -161,6 +210,29 @@ async function getTrainingSection() {
 
 app.get("/api/training-section", async (_req, res) => {
   res.json(await getTrainingSection());
+});
+
+async function getPricingSection() {
+  const sectionResult = await pool.query("SELECT heading FROM pricing_section WHERE id = 1");
+  const itemsResult = await pool.query(
+    "SELECT id, label, value, detail, sort_order FROM pricing_items ORDER BY sort_order ASC, id ASC",
+  );
+  const section = sectionResult.rows[0] || defaultPricingSection;
+
+  return {
+    heading: section.heading,
+    items: itemsResult.rows.map((item) => ({
+      id: item.id,
+      label: item.label,
+      value: item.value,
+      detail: item.detail,
+      sortOrder: item.sort_order,
+    })),
+  };
+}
+
+app.get("/api/pricing-section", async (_req, res) => {
+  res.json(await getPricingSection());
 });
 
 app.post("/api/admin/login", async (req, res) => {
@@ -250,6 +322,74 @@ app.put("/api/admin/training-section", authenticate, async (req, res) => {
     await client.query("ROLLBACK");
     console.error(error);
     res.status(500).json({ message: "Sekciu sa nepodarilo uložiť." });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/api/admin/pricing-section", authenticate, async (_req, res) => {
+  res.json(await getPricingSection());
+});
+
+app.put("/api/admin/pricing-section", authenticate, async (req, res) => {
+  const heading = String(req.body?.heading || "").trim();
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+  if (!heading) {
+    return res.status(400).json({ message: "Hlavný text je povinný." });
+  }
+
+  if (items.length === 0) {
+    return res.status(400).json({ message: "Pridaj aspoň jednu bunku." });
+  }
+
+  const normalizedItems = items.map((item, index) => ({
+    id: Number.isInteger(item.id) && item.id > 0 ? item.id : null,
+    label: String(item.label || "").trim(),
+    value: String(item.value || "").trim(),
+    detail: String(item.detail || "").trim(),
+    sortOrder: Number.isInteger(item.sortOrder) ? item.sortOrder : index,
+  }));
+
+  if (normalizedItems.some((item) => !item.label || !item.value || !item.detail)) {
+    return res.status(400).json({ message: "Každá bunka musí mať typ, názov a hodnotu." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO pricing_section (id, heading) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, updated_at = NOW()",
+      [heading],
+    );
+
+    const keptIds = [];
+    for (const [index, item] of normalizedItems.entries()) {
+      if (item.id) {
+        const result = await client.query(
+          "UPDATE pricing_items SET label = $1, value = $2, detail = $3, sort_order = $4, updated_at = NOW() WHERE id = $5 RETURNING id",
+          [item.label, item.value, item.detail, index, item.id],
+        );
+        if (result.rows[0]) {
+          keptIds.push(result.rows[0].id);
+          continue;
+        }
+      }
+
+      const result = await client.query(
+        "INSERT INTO pricing_items (label, value, detail, sort_order) VALUES ($1, $2, $3, $4) RETURNING id",
+        [item.label, item.value, item.detail, index],
+      );
+      keptIds.push(result.rows[0].id);
+    }
+
+    await client.query("DELETE FROM pricing_items WHERE NOT (id = ANY($1::int[]))", [keptIds]);
+    await client.query("COMMIT");
+    res.json(await getPricingSection());
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    res.status(500).json({ message: "Cenník sa nepodarilo uložiť." });
   } finally {
     client.release();
   }

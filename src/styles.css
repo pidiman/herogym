@@ -628,6 +628,31 @@ footer {
   gap: 1rem;
 }
 
+.admin-section-menu {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.admin-section-menu button {
+  min-height: 5rem;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(1.2rem, 3vw, 1.7rem);
+  font-weight: 950;
+  text-align: left;
+  padding: 1rem;
+}
+
+.admin-section-menu button:hover,
+.admin-section-menu button.is-active {
+  border-color: rgba(64, 143, 244, 0.82);
+  background: rgba(64, 143, 244, 0.14);
+}
+
 .admin-editor-form label,
 .admin-card-editor label {
   display: grid;
@@ -783,6 +808,7 @@ footer {
     flex-direction: column;
   }
 
+  .admin-section-menu,
   .admin-cards-editor {
     grid-template-columns: 1fr;
   }

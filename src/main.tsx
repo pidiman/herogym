@@ -33,15 +33,6 @@ const gallery = [
   { src: "/assets/gallery/detail.jpg", title: "Detail priestoru", tag: "Fitnes", shape: "wide" },
 ] as const;
 
-const priceItems = [
-  { label: "Jednorazový vstup", value: "7€", detail: "Fitnes" },
-  { label: "10 vstupov", value: "45€", detail: "Vstupová karta" },
-  { label: "25 vstupov", value: "100€", detail: "Vstupová karta" },
-  { label: "1 mesiac", value: "42€", detail: "Permanentka" },
-  { label: "1 mesiac do 18 rokov", value: "38€", detail: "Zvýhodnená permanentka" },
-  { label: "3 mesiace", value: "117€", detail: "Permanentka" },
-];
-
 const iconMap = {
   dumbbell: Dumbbell,
   calendar: CalendarDays,
@@ -61,6 +52,19 @@ type TrainingSection = {
   heading: string;
   body: string;
   cards: TrainingCard[];
+};
+
+type PricingItem = {
+  id?: number;
+  label: string;
+  value: string;
+  detail: string;
+  sortOrder?: number;
+};
+
+type PricingSection = {
+  heading: string;
+  items: PricingItem[];
 };
 
 const iconLabels: Record<keyof typeof iconMap, string> = {
@@ -98,6 +102,18 @@ const defaultTrainingSection: TrainingSection = {
   ],
 };
 
+const defaultPricingSection: PricingSection = {
+  heading: "Jasné vstupy bez hľadania v tabuľkách.",
+  items: [
+    { label: "Jednorazový vstup", value: "7€", detail: "Fitnes" },
+    { label: "10 vstupov", value: "45€", detail: "Vstupová karta" },
+    { label: "25 vstupov", value: "100€", detail: "Vstupová karta" },
+    { label: "1 mesiac", value: "42€", detail: "Permanentka" },
+    { label: "1 mesiac do 18 rokov", value: "38€", detail: "Zvýhodnená permanentka" },
+    { label: "3 mesiace", value: "117€", detail: "Permanentka" },
+  ],
+};
+
 function Root() {
   const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
 
@@ -112,6 +128,7 @@ function MarketingSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Všetko");
   const [trainingSection, setTrainingSection] = useState<TrainingSection>(defaultTrainingSection);
+  const [pricingSection, setPricingSection] = useState<PricingSection>(defaultPricingSection);
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
   const filteredGallery = activeTag === "Všetko" ? gallery : gallery.filter((item) => item.tag === activeTag);
 
@@ -120,6 +137,13 @@ function MarketingSite() {
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: TrainingSection) => setTrainingSection(data))
       .catch(() => setTrainingSection(defaultTrainingSection));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/pricing-section")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: PricingSection) => setPricingSection(data))
+      .catch(() => setPricingSection(defaultPricingSection));
   }, []);
 
   return (
@@ -218,11 +242,11 @@ function MarketingSite() {
         <section className="section" id="cennik">
           <div className="section-heading">
             <p className="eyebrow">Cenník fitnes</p>
-            <h2>Jasné vstupy bez hľadania v tabuľkách.</h2>
+            <h2>{pricingSection.heading}</h2>
           </div>
           <div className="price-grid">
-            {priceItems.map((item) => (
-              <article className="price-card" key={item.label}>
+            {pricingSection.items.map((item) => (
+              <article className="price-card" key={item.id || item.label}>
                 <span>{item.detail}</span>
                 <h3>{item.label}</h3>
                 <strong>{item.value}</strong>
@@ -303,10 +327,15 @@ function AdminPage() {
   const [adminName, setAdminName] = useState("");
   const [message, setMessage] = useState("");
   const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(defaultTrainingSection);
+  const [pricingDraft, setPricingDraft] = useState<PricingSection>(defaultPricingSection);
+  const [activeAdminSection, setActiveAdminSection] = useState<"training" | "pricing" | null>(null);
   const [trainingMessage, setTrainingMessage] = useState("");
+  const [pricingMessage, setPricingMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTrainingLoading, setIsTrainingLoading] = useState(false);
   const [isTrainingSaving, setIsTrainingSaving] = useState(false);
+  const [isPricingLoading, setIsPricingLoading] = useState(false);
+  const [isPricingSaving, setIsPricingSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("herogym_admin_token");
@@ -327,6 +356,7 @@ function AdminPage() {
   useEffect(() => {
     if (adminName) {
       void loadTrainingSection();
+      void loadPricingSection();
     }
   }, [adminName]);
 
@@ -355,6 +385,30 @@ function AdminPage() {
       setTrainingMessage(error instanceof Error ? error.message : "Sekciu sa nepodarilo načítať.");
     } finally {
       setIsTrainingLoading(false);
+    }
+  }
+
+  async function loadPricingSection() {
+    setIsPricingLoading(true);
+    setPricingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/pricing-section", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Cenník sa nepodarilo načítať.");
+      }
+
+      setPricingDraft(data);
+    } catch (error) {
+      setPricingMessage(error instanceof Error ? error.message : "Cenník sa nepodarilo načítať.");
+    } finally {
+      setIsPricingLoading(false);
     }
   }
 
@@ -392,6 +446,7 @@ function AdminPage() {
     setAdminName("");
     setUsername("");
     setPassword("");
+    setActiveAdminSection(null);
   }
 
   function updateCard(index: number, nextCard: TrainingCard) {
@@ -451,6 +506,63 @@ function AdminPage() {
     }
   }
 
+  function updatePricingItem(index: number, nextItem: PricingItem) {
+    setPricingDraft((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => (itemIndex === index ? nextItem : item)),
+    }));
+  }
+
+  function addPricingItem() {
+    setPricingDraft((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        {
+          label: "Nová položka",
+          value: "0€",
+          detail: "Typ",
+        },
+      ],
+    }));
+  }
+
+  function removePricingItem(index: number) {
+    setPricingDraft((current) => ({
+      ...current,
+      items: current.items.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
+  async function savePricingSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsPricingSaving(true);
+    setPricingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/pricing-section", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(pricingDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Cenník sa nepodarilo uložiť.");
+      }
+
+      setPricingDraft(data);
+      setPricingMessage("Cenník je uložený.");
+    } catch (error) {
+      setPricingMessage(error instanceof Error ? error.message : "Cenník sa nepodarilo uložiť.");
+    } finally {
+      setIsPricingSaving(false);
+    }
+  }
+
   return (
     <main className="admin-page">
       <div className="admin-bg" aria-hidden="true">
@@ -463,82 +575,156 @@ function AdminPage() {
           <div className="admin-dashboard">
             <div className="admin-toolbar">
               <div>
-                <h1 id="admin-title">Tréningy</h1>
-                <p>Vitaj, {adminName}. Uprav obsah verejnej sekcie tréningy.</p>
+                <h1 id="admin-title">Obsah</h1>
+                <p>Vitaj, {adminName}. Vyber sekciu, ktorú chceš upraviť.</p>
               </div>
               <button className="button ghost" type="button" onClick={logout}>
                 Odhlásiť
               </button>
             </div>
-            <form className="admin-editor-form" onSubmit={saveTrainingSection}>
-              <label>
-                Hlavný text
-                <input
-                  value={trainingDraft.heading}
-                  onChange={(event) => setTrainingDraft((current) => ({ ...current, heading: event.target.value }))}
-                />
-              </label>
-              <label>
-                Vedľajší text
-                <textarea
-                  value={trainingDraft.body}
-                  onChange={(event) => setTrainingDraft((current) => ({ ...current, body: event.target.value }))}
-                  rows={4}
-                />
-              </label>
-              <div className="admin-editor-heading">
-                <h2>Bunky</h2>
-                <button className="button ghost" type="button" onClick={addCard}>
-                  <Plus size={18} /> Pridať bunku
-                </button>
-              </div>
-              <div className="admin-cards-editor">
-                {trainingDraft.cards.map((card, index) => (
-                  <article className="admin-card-editor" key={card.id || index}>
-                    <div className="admin-card-editor-head">
-                      <strong>Bunka {index + 1}</strong>
-                      <button type="button" onClick={() => removeCard(index)} aria-label="Odstrániť bunku">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                    <label>
-                      Názov
-                      <input
-                        value={card.title}
-                        onChange={(event) => updateCard(index, { ...card, title: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Text
-                      <textarea
-                        value={card.body}
-                        onChange={(event) => updateCard(index, { ...card, body: event.target.value })}
-                        rows={4}
-                      />
-                    </label>
-                    <label>
-                      Ikona
-                      <select
-                        value={card.icon}
-                        onChange={(event) =>
-                          updateCard(index, { ...card, icon: event.target.value as keyof typeof iconMap })
-                        }
-                      >
-                        {Object.entries(iconLabels).map(([value, label]) => (
-                          <option value={value} key={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </article>
-                ))}
-              </div>
-              {trainingMessage ? <p className="admin-message">{trainingMessage}</p> : null}
-              <button className="button primary" disabled={isTrainingSaving || isTrainingLoading} type="submit">
-                <Save size={18} /> {isTrainingSaving ? "Ukladám..." : "Uložiť tréningy"}
+            <div className="admin-section-menu">
+              <button
+                className={activeAdminSection === "training" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveAdminSection((current) => (current === "training" ? null : "training"))}
+              >
+                Tréningy
               </button>
-            </form>
+              <button
+                className={activeAdminSection === "pricing" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveAdminSection((current) => (current === "pricing" ? null : "pricing"))}
+              >
+                Cenník
+              </button>
+            </div>
+
+            {activeAdminSection === "training" ? (
+              <form className="admin-editor-form" onSubmit={saveTrainingSection}>
+                <label>
+                  Hlavný text
+                  <input
+                    value={trainingDraft.heading}
+                    onChange={(event) => setTrainingDraft((current) => ({ ...current, heading: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Vedľajší text
+                  <textarea
+                    value={trainingDraft.body}
+                    onChange={(event) => setTrainingDraft((current) => ({ ...current, body: event.target.value }))}
+                    rows={4}
+                  />
+                </label>
+                <div className="admin-editor-heading">
+                  <h2>Bunky</h2>
+                  <button className="button ghost" type="button" onClick={addCard}>
+                    <Plus size={18} /> Pridať bunku
+                  </button>
+                </div>
+                <div className="admin-cards-editor">
+                  {trainingDraft.cards.map((card, index) => (
+                    <article className="admin-card-editor" key={card.id || index}>
+                      <div className="admin-card-editor-head">
+                        <strong>Bunka {index + 1}</strong>
+                        <button type="button" onClick={() => removeCard(index)} aria-label="Odstrániť bunku">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                      <label>
+                        Názov
+                        <input
+                          value={card.title}
+                          onChange={(event) => updateCard(index, { ...card, title: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Text
+                        <textarea
+                          value={card.body}
+                          onChange={(event) => updateCard(index, { ...card, body: event.target.value })}
+                          rows={4}
+                        />
+                      </label>
+                      <label>
+                        Ikona
+                        <select
+                          value={card.icon}
+                          onChange={(event) =>
+                            updateCard(index, { ...card, icon: event.target.value as keyof typeof iconMap })
+                          }
+                        >
+                          {Object.entries(iconLabels).map(([value, label]) => (
+                            <option value={value} key={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </article>
+                  ))}
+                </div>
+                {trainingMessage ? <p className="admin-message">{trainingMessage}</p> : null}
+                <button className="button primary" disabled={isTrainingSaving || isTrainingLoading} type="submit">
+                  <Save size={18} /> {isTrainingSaving ? "Ukladám..." : "Uložiť tréningy"}
+                </button>
+              </form>
+            ) : null}
+
+            {activeAdminSection === "pricing" ? (
+              <form className="admin-editor-form" onSubmit={savePricingSection}>
+                <label>
+                  Hlavný text
+                  <input
+                    value={pricingDraft.heading}
+                    onChange={(event) => setPricingDraft((current) => ({ ...current, heading: event.target.value }))}
+                  />
+                </label>
+                <div className="admin-editor-heading">
+                  <h2>Bunky</h2>
+                  <button className="button ghost" type="button" onClick={addPricingItem}>
+                    <Plus size={18} /> Pridať bunku
+                  </button>
+                </div>
+                <div className="admin-cards-editor">
+                  {pricingDraft.items.map((item, index) => (
+                    <article className="admin-card-editor" key={item.id || index}>
+                      <div className="admin-card-editor-head">
+                        <strong>Bunka {index + 1}</strong>
+                        <button type="button" onClick={() => removePricingItem(index)} aria-label="Odstrániť bunku">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                      <label>
+                        Typ
+                        <input
+                          value={item.detail}
+                          onChange={(event) => updatePricingItem(index, { ...item, detail: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Názov
+                        <input
+                          value={item.label}
+                          onChange={(event) => updatePricingItem(index, { ...item, label: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Hodnota
+                        <input
+                          value={item.value}
+                          onChange={(event) => updatePricingItem(index, { ...item, value: event.target.value })}
+                        />
+                      </label>
+                    </article>
+                  ))}
+                </div>
+                {pricingMessage ? <p className="admin-message">{pricingMessage}</p> : null}
+                <button className="button primary" disabled={isPricingSaving || isPricingLoading} type="submit">
+                  <Save size={18} /> {isPricingSaving ? "Ukladám..." : "Uložiť cenník"}
+                </button>
+              </form>
+            ) : null}
           </div>
         ) : (
           <>
