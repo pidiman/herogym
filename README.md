@@ -23,17 +23,20 @@ npm run dev
 npm run build
 ```
 
-## GitHub prepojenie
+## Docker
 
-Repozitár je lokálne inicializovaný cez git. Na prepojenie s GitHubom treba pridať remote:
+Projekt obsahuje samostatný web server a samostatný PostgreSQL server pripravený na budúce funkcie.
+Adminer nie je súčasťou tohto compose, počíta sa so spoločným Adminer kontajnerom na externej sieti.
 
 ```bash
-git remote add origin https://github.com/TVOUZIVATELSKE-MENO/hero-gym-stupava.git
-git branch -M main
-git add .
-git commit -m "Create Hero Gym website"
-git push -u origin main
+cp .env.example .env
+docker network create adminer
+docker compose up -d --build
 ```
 
-Pre deploy cez GitHub Pages nastav v repozitári GitHub Pages na zdroj `GitHub Actions` a pridaj workflow
-pre build priečinka `dist`, alebo nahraj statický export z `npm run build`.
+Web bude dostupný na porte z `APP_PORT`, predvolene `8091`.
+V spoločnom Admineri použi server `herogym-db`, používateľa a heslo z `.env`.
+
+## GitHub
+
+Repozitár je pripojený na `https://github.com/pidiman/herogym.git`.
