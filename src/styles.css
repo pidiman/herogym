@@ -10,7 +10,7 @@
   --text: #f7f4ed;
   --muted: #b9b4aa;
   --line: rgba(247, 244, 237, 0.14);
-  --red: #e83c35;
+  --blue: #408ff4;
   --amber: #e5b75f;
   --green: #4ec98c;
 }
@@ -27,7 +27,7 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at top left, rgba(232, 60, 53, 0.22), transparent 30rem),
+    radial-gradient(circle at top left, rgba(64, 143, 244, 0.24), transparent 30rem),
     linear-gradient(180deg, #090a0d 0%, #101116 45%, #0b0c0f 100%);
 }
 
@@ -79,8 +79,8 @@ button {
   width: 2.8rem;
   height: 2.8rem;
   place-items: center;
-  border: 1px solid rgba(232, 60, 53, 0.5);
-  background: linear-gradient(145deg, #ec3f37, #841d1b);
+  border: 1px solid rgba(64, 143, 244, 0.58);
+  background: linear-gradient(145deg, #408ff4, #1154ab);
   font-weight: 950;
 }
 
@@ -235,9 +235,9 @@ h3 {
 }
 
 .button.primary {
-  color: #160e0b;
-  background: var(--red);
-  border-color: var(--red);
+  color: #061225;
+  background: var(--blue);
+  border-color: var(--blue);
 }
 
 .button.ghost {
@@ -296,7 +296,7 @@ h3 {
 
 .service-card svg {
   margin-bottom: 1.2rem;
-  color: var(--red);
+  color: var(--blue);
 }
 
 .service-card p {
@@ -310,9 +310,9 @@ h3 {
   gap: 2rem;
   align-items: end;
   padding: clamp(3rem, 7vw, 5rem) clamp(1rem, 4vw, 3rem);
-  border-block: 1px solid rgba(232, 60, 53, 0.3);
+  border-block: 1px solid rgba(64, 143, 244, 0.34);
   background:
-    linear-gradient(120deg, rgba(232, 60, 53, 0.2), transparent),
+    linear-gradient(120deg, rgba(64, 143, 244, 0.22), transparent),
     #171a20;
 }
 
@@ -469,7 +469,7 @@ h3 {
 }
 
 .contact-panel a:hover {
-  border-color: rgba(232, 60, 53, 0.7);
+  border-color: rgba(64, 143, 244, 0.75);
 }
 
 footer {
