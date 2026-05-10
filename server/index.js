@@ -117,9 +117,23 @@ async function initDatabase() {
       id SERIAL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'moderator' CHECK (role IN ('admin', 'moderator')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'");
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name = 'admin_users' AND constraint_name = 'admin_users_role_check'
+      ) THEN
+        ALTER TABLE admin_users ADD CONSTRAINT admin_users_role_check CHECK (role IN ('admin', 'moderator'));
+      END IF;
+    END$$;
   `);
 
   await pool.query(`
@@ -210,7 +224,12 @@ async function initDatabase() {
   const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [adminUser]);
   if (existing.rowCount === 0) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
-    await pool.query("INSERT INTO admin_users (username, password_hash) VALUES ($1, $2)", [adminUser, passwordHash]);
+    await pool.query("INSERT INTO admin_users (username, password_hash, role) VALUES ($1, $2, 'admin')", [
+      adminUser,
+      passwordHash,
+    ]);
+  } else {
+    await pool.query("UPDATE admin_users SET role = 'admin' WHERE username = $1", [adminUser]);
   }
 
   const section = await pool.query("SELECT id FROM training_section WHERE id = 1");
@@ -293,7 +312,7 @@ async function initDatabase() {
   }
 }
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
 
@@ -301,12 +320,29 @@ function authenticate(req, res, next) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
+  let payload;
   try {
-    req.admin = jwt.verify(token, jwtSecret);
-    return next();
+    payload = jwt.verify(token, jwtSecret);
   } catch {
     return res.status(401).json({ message: "Unauthorized" });
   }
+
+  const result = await pool.query("SELECT id, username, role FROM admin_users WHERE id = $1", [payload.sub]);
+  const user = result.rows[0];
+
+  if (!user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  req.admin = { sub: user.id, username: user.username, role: user.role };
+  return next();
+}
+
+function requireAdmin(req, res, next) {
+  if (req.admin?.role !== "admin") {
+    return res.status(403).json({ message: "Iba admin môže vykonať túto akciu." });
+  }
+  return next();
 }
 
 app.get("/health", async (_req, res) => {
@@ -436,19 +472,166 @@ app.post("/api/admin/login", async (req, res) => {
     return res.status(400).json({ message: "Meno a heslo sú povinné." });
   }
 
-  const result = await pool.query("SELECT id, username, password_hash FROM admin_users WHERE username = $1", [username]);
+  const result = await pool.query(
+    "SELECT id, username, password_hash, role FROM admin_users WHERE username = $1",
+    [username],
+  );
   const user = result.rows[0];
 
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ message: "Nesprávne meno alebo heslo." });
   }
 
-  const token = jwt.sign({ sub: user.id, username: user.username }, jwtSecret, { expiresIn: "8h" });
-  return res.json({ token, username: user.username });
+  const token = jwt.sign({ sub: user.id, username: user.username, role: user.role }, jwtSecret, {
+    expiresIn: "8h",
+  });
+  return res.json({ token, id: user.id, username: user.username, role: user.role });
 });
 
 app.get("/api/admin/me", authenticate, (req, res) => {
-  res.json({ username: req.admin.username });
+  res.json({ id: req.admin.sub, username: req.admin.username, role: req.admin.role });
+});
+
+app.get("/api/admin/users", authenticate, requireAdmin, async (_req, res) => {
+  const result = await pool.query(
+    "SELECT id, username, role, created_at FROM admin_users ORDER BY created_at ASC, id ASC",
+  );
+  res.json(
+    result.rows.map((row) => ({
+      id: row.id,
+      username: row.username,
+      role: row.role,
+      createdAt: row.created_at,
+    })),
+  );
+});
+
+app.post("/api/admin/users", authenticate, requireAdmin, async (req, res) => {
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  const role = String(req.body?.role || "").trim();
+
+  if (!username || !password) {
+    return res.status(400).json({ message: "Meno a heslo sú povinné." });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
+  }
+
+  if (role !== "admin" && role !== "moderator") {
+    return res.status(400).json({ message: "Rola musí byť admin alebo moderator." });
+  }
+
+  const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [username]);
+  if (existing.rowCount > 0) {
+    return res.status(409).json({ message: "Používateľ s týmto menom už existuje." });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const result = await pool.query(
+    "INSERT INTO admin_users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, role, created_at",
+    [username, passwordHash, role],
+  );
+  const row = result.rows[0];
+
+  res.status(201).json({
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    createdAt: row.created_at,
+  });
+});
+
+app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ message: "Neplatné ID." });
+  }
+
+  const password = req.body?.password === undefined ? null : String(req.body.password);
+  const role = req.body?.role === undefined ? null : String(req.body.role).trim();
+
+  if (role !== null && role !== "admin" && role !== "moderator") {
+    return res.status(400).json({ message: "Rola musí byť admin alebo moderator." });
+  }
+
+  if (password !== null && password.length > 0 && password.length < 8) {
+    return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
+  }
+
+  const target = await pool.query("SELECT id, role FROM admin_users WHERE id = $1", [id]);
+  if (target.rowCount === 0) {
+    return res.status(404).json({ message: "Používateľ neexistuje." });
+  }
+
+  if (id === req.admin.sub && role !== null && role !== "admin") {
+    return res.status(400).json({ message: "Nemôžeš si zmeniť vlastnú rolu." });
+  }
+
+  if (role !== null && target.rows[0].role === "admin" && role !== "admin") {
+    const adminCount = await pool.query("SELECT COUNT(*)::int AS count FROM admin_users WHERE role = 'admin'");
+    if (adminCount.rows[0].count <= 1) {
+      return res.status(400).json({ message: "Musí ostať aspoň jeden admin." });
+    }
+  }
+
+  const updates = [];
+  const values = [];
+  if (password !== null && password.length > 0) {
+    values.push(await bcrypt.hash(password, 12));
+    updates.push(`password_hash = $${values.length}`);
+  }
+  if (role !== null) {
+    values.push(role);
+    updates.push(`role = $${values.length}`);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ message: "Nič na uloženie." });
+  }
+
+  updates.push("updated_at = NOW()");
+  values.push(id);
+
+  const result = await pool.query(
+    `UPDATE admin_users SET ${updates.join(", ")} WHERE id = $${values.length} RETURNING id, username, role, created_at`,
+    values,
+  );
+  const row = result.rows[0];
+
+  res.json({
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    createdAt: row.created_at,
+  });
+});
+
+app.delete("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ message: "Neplatné ID." });
+  }
+
+  if (id === req.admin.sub) {
+    return res.status(400).json({ message: "Nemôžeš zmazať sám seba." });
+  }
+
+  const target = await pool.query("SELECT role FROM admin_users WHERE id = $1", [id]);
+  if (target.rowCount === 0) {
+    return res.status(404).json({ message: "Používateľ neexistuje." });
+  }
+
+  if (target.rows[0].role === "admin") {
+    const adminCount = await pool.query("SELECT COUNT(*)::int AS count FROM admin_users WHERE role = 'admin'");
+    if (adminCount.rows[0].count <= 1) {
+      return res.status(400).json({ message: "Musí ostať aspoň jeden admin." });
+    }
+  }
+
+  await pool.query("DELETE FROM admin_users WHERE id = $1", [id]);
+  res.json({ ok: true });
 });
 
 app.get("/api/admin/training-section", authenticate, async (_req, res) => {

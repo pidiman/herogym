@@ -105,6 +105,15 @@ type AboutSection = {
   body: string;
 };
 
+type AdminRole = "admin" | "moderator";
+
+type AdminUser = {
+  id: number;
+  username: string;
+  role: AdminRole;
+  createdAt?: string;
+};
+
 const iconLabels: Record<keyof typeof iconMap, string> = {
   dumbbell: "Činka",
   calendar: "Kalendár",
@@ -442,6 +451,8 @@ function AdminPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [adminName, setAdminName] = useState("");
+  const [adminRole, setAdminRole] = useState<AdminRole>("moderator");
+  const [adminId, setAdminId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(defaultTrainingSection);
   const [groupTrainingDraft, setGroupTrainingDraft] =
@@ -449,8 +460,17 @@ function AdminPage() {
   const [pricingDraft, setPricingDraft] = useState<PricingSection>(defaultPricingSection);
   const [contactDraft, setContactDraft] = useState<ContactSection>(defaultContactSection);
   const [aboutDraft, setAboutDraft] = useState<AboutSection>(defaultAboutSection);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<AdminRole>("moderator");
+  const [userPasswords, setUserPasswords] = useState<Record<number, string>>({});
+  const [usersMessage, setUsersMessage] = useState("");
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [activeAdminSection, setActiveAdminSection] =
-    useState<"training" | "groupTraining" | "pricing" | "contact" | "about" | null>(null);
+    useState<"training" | "groupTraining" | "pricing" | "contact" | "about" | "users" | null>(null);
   const [trainingMessage, setTrainingMessage] = useState("");
   const [groupTrainingMessage, setGroupTrainingMessage] = useState("");
   const [pricingMessage, setPricingMessage] = useState("");
@@ -480,7 +500,13 @@ function AdminPage() {
       },
     })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((data: { username: string }) => setAdminName(data.username))
+      .then((data: { username: string; role: AdminRole; id?: number }) => {
+        setAdminName(data.username);
+        setAdminRole(data.role);
+        if (typeof data.id === "number") {
+          setAdminId(data.id);
+        }
+      })
       .catch(() => localStorage.removeItem("herogym_admin_token"));
   }, []);
 
@@ -491,8 +517,11 @@ function AdminPage() {
       void loadPricingSection();
       void loadContactSection();
       void loadAboutSection();
+      if (adminRole === "admin") {
+        void loadUsers();
+      }
     }
-  }, [adminName]);
+  }, [adminName, adminRole]);
 
   function getToken() {
     return localStorage.getItem("herogym_admin_token") || "";
@@ -618,6 +647,130 @@ function AdminPage() {
     }
   }
 
+  async function loadUsers() {
+    setIsUsersLoading(true);
+    setUsersMessage("");
+
+    try {
+      const response = await fetch("/api/admin/users", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Používateľov sa nepodarilo načítať.");
+      }
+
+      setUsers(data);
+    } catch (error) {
+      setUsersMessage(error instanceof Error ? error.message : "Používateľov sa nepodarilo načítať.");
+    } finally {
+      setIsUsersLoading(false);
+    }
+  }
+
+  async function createUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsCreatingUser(true);
+    setUsersMessage("");
+
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: newUserName, password: newUserPassword, role: newUserRole }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Používateľa sa nepodarilo vytvoriť.");
+      }
+
+      setUsers((current) => [...current, data]);
+      setNewUserName("");
+      setNewUserPassword("");
+      setNewUserRole("moderator");
+      setUsersMessage(`Používateľ ${data.username} bol vytvorený.`);
+    } catch (error) {
+      setUsersMessage(error instanceof Error ? error.message : "Používateľa sa nepodarilo vytvoriť.");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  }
+
+  async function updateUser(id: number, payload: { password?: string; role?: AdminRole }) {
+    setUpdatingUserId(id);
+    setUsersMessage("");
+
+    try {
+      const response = await fetch(`/api/admin/users/${id}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Používateľa sa nepodarilo upraviť.");
+      }
+
+      setUsers((current) => current.map((user) => (user.id === id ? data : user)));
+      setUserPasswords((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setUsersMessage(`Používateľ ${data.username} bol upravený.`);
+    } catch (error) {
+      setUsersMessage(error instanceof Error ? error.message : "Používateľa sa nepodarilo upraviť.");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function deleteUser(id: number) {
+    if (!window.confirm("Naozaj zmazať tohto používateľa?")) {
+      return;
+    }
+
+    setUpdatingUserId(id);
+    setUsersMessage("");
+
+    try {
+      const response = await fetch(`/api/admin/users/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = response.status === 204 ? { ok: true } : await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Používateľa sa nepodarilo zmazať.");
+      }
+
+      setUsers((current) => current.filter((user) => user.id !== id));
+      setUserPasswords((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setUsersMessage("Používateľ bol zmazaný.");
+    } catch (error) {
+      setUsersMessage(error instanceof Error ? error.message : "Používateľa sa nepodarilo zmazať.");
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
@@ -639,6 +792,10 @@ function AdminPage() {
 
       localStorage.setItem("herogym_admin_token", data.token);
       setAdminName(data.username);
+      setAdminRole(data.role);
+      if (typeof data.id === "number") {
+        setAdminId(data.id);
+      }
       setPassword("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Prihlásenie sa nepodarilo.");
@@ -650,9 +807,13 @@ function AdminPage() {
   function logout() {
     localStorage.removeItem("herogym_admin_token");
     setAdminName("");
+    setAdminRole("moderator");
+    setAdminId(null);
     setUsername("");
     setPassword("");
     setActiveAdminSection(null);
+    setUsers([]);
+    setUserPasswords({});
   }
 
   function updateCard(index: number, nextCard: TrainingCard) {
@@ -941,6 +1102,15 @@ function AdminPage() {
               >
                 O nás
               </button>
+              {adminRole === "admin" ? (
+                <button
+                  className={activeAdminSection === "users" ? "is-active" : ""}
+                  type="button"
+                  onClick={() => setActiveAdminSection((current) => (current === "users" ? null : "users"))}
+                >
+                  Používatelia
+                </button>
+              ) : null}
             </div>
 
             {activeAdminSection === "training" ? (
@@ -1237,6 +1407,109 @@ function AdminPage() {
                   <Save size={18} /> {isAboutSaving ? "Ukladám..." : "Uložiť O nás"}
                 </button>
               </form>
+            ) : null}
+
+            {activeAdminSection === "users" && adminRole === "admin" ? (
+              <div className="admin-editor-form">
+                <form className="admin-editor-form" onSubmit={createUser}>
+                  <div className="admin-editor-heading">
+                    <h2>Pridať používateľa</h2>
+                  </div>
+                  <label>
+                    Meno
+                    <input
+                      value={newUserName}
+                      onChange={(event) => setNewUserName(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    Heslo
+                    <input
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(event) => setNewUserPassword(event.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label>
+                    Rola
+                    <select
+                      value={newUserRole}
+                      onChange={(event) => setNewUserRole(event.target.value as AdminRole)}
+                    >
+                      <option value="moderator">Moderátor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                  <button className="button primary" disabled={isCreatingUser} type="submit">
+                    <Plus size={18} /> {isCreatingUser ? "Pridávam..." : "Pridať používateľa"}
+                  </button>
+                </form>
+
+                <div className="admin-editor-heading">
+                  <h2>Existujúci používatelia</h2>
+                </div>
+                {usersMessage ? <p className="admin-message">{usersMessage}</p> : null}
+                <div className="admin-cards-editor">
+                  {isUsersLoading && users.length === 0 ? <p>Načítavam...</p> : null}
+                  {users.map((user) => {
+                    const isSelf = adminId === user.id;
+                    const isBusy = updatingUserId === user.id;
+                    return (
+                      <article className="admin-card-editor" key={user.id}>
+                        <div className="admin-card-editor-head">
+                          <strong>
+                            {user.username} {isSelf ? "(ja)" : null}
+                          </strong>
+                          <button
+                            type="button"
+                            onClick={() => deleteUser(user.id)}
+                            aria-label="Zmazať používateľa"
+                            disabled={isSelf || isBusy}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                        <label>
+                          Rola
+                          <select
+                            value={user.role}
+                            disabled={isSelf || isBusy}
+                            onChange={(event) =>
+                              updateUser(user.id, { role: event.target.value as AdminRole })
+                            }
+                          >
+                            <option value="moderator">Moderátor</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </label>
+                        <label>
+                          Nové heslo
+                          <input
+                            type="password"
+                            value={userPasswords[user.id] || ""}
+                            onChange={(event) =>
+                              setUserPasswords((current) => ({ ...current, [user.id]: event.target.value }))
+                            }
+                            autoComplete="new-password"
+                          />
+                        </label>
+                        <button
+                          className="button primary"
+                          type="button"
+                          disabled={isBusy || !(userPasswords[user.id] || "").trim()}
+                          onClick={() =>
+                            updateUser(user.id, { password: userPasswords[user.id] || "" })
+                          }
+                        >
+                          <Save size={18} /> {isBusy ? "Ukladám..." : "Zmeniť heslo"}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
           </div>
         ) : (
