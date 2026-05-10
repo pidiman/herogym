@@ -705,6 +705,7 @@ footer {
 
 .admin-editor-form input,
 .admin-editor-form textarea,
+.admin-editor-form select,
 .admin-card-editor input,
 .admin-card-editor textarea,
 .admin-card-editor select {
@@ -719,6 +720,12 @@ footer {
   font: inherit;
 }
 
+.admin-editor-form select option,
+.admin-card-editor select option {
+  background-color: #15171c;
+  color: #f7f4ed;
+}
+
 .admin-editor-form textarea,
 .admin-card-editor textarea {
   resize: vertical;
@@ -727,6 +734,7 @@ footer {
 
 .admin-editor-form input:focus,
 .admin-editor-form textarea:focus,
+.admin-editor-form select:focus,
 .admin-card-editor input:focus,
 .admin-card-editor textarea:focus,
 .admin-card-editor select:focus {
