@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS contact_items (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS about_section (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  eyebrow TEXT NOT NULL,
+  heading TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS contact_leads (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,

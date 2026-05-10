@@ -99,6 +99,12 @@ type ContactSection = {
   items: ContactItem[];
 };
 
+type AboutSection = {
+  eyebrow: string;
+  heading: string;
+  body: string;
+};
+
 const iconLabels: Record<keyof typeof iconMap, string> = {
   dumbbell: "Činka",
   calendar: "Kalendár",
@@ -181,6 +187,17 @@ const defaultContactSection: ContactSection = {
   ],
 };
 
+const defaultAboutSection: AboutSection = {
+  eyebrow: "O nás",
+  heading: "HERO GYM STUPAVA",
+  body: [
+    "Z malého káčatka Cevagym, ktoré dovŕšilo 5 rokov sa stala dospelá labuť HERO GYM.",
+    "Sme radi že Vás môžme privítať u nás „DOMA“, pretože dávame do toho všetko a vždy budeme, kým tu budete vy pre nás.",
+    "Tešíme sa na každú jednu Vašu návštevu. Radi Vám spravíme voňavú kávu.",
+    "Máte na výber z rôznych predtréningových ale aj potréningových nápojov.",
+  ].join("\n\n"),
+};
+
 function Root() {
   const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
 
@@ -199,6 +216,7 @@ function MarketingSite() {
     useState<GroupTrainingSection>(defaultGroupTrainingSection);
   const [pricingSection, setPricingSection] = useState<PricingSection>(defaultPricingSection);
   const [contactSection, setContactSection] = useState<ContactSection>(defaultContactSection);
+  const [aboutSection, setAboutSection] = useState<AboutSection>(defaultAboutSection);
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
   const filteredGallery = activeTag === "Všetko" ? gallery : gallery.filter((item) => item.tag === activeTag);
 
@@ -228,6 +246,13 @@ function MarketingSite() {
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: ContactSection) => setContactSection(data))
       .catch(() => setContactSection(defaultContactSection));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/about-section")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: AboutSection) => setAboutSection(data))
+      .catch(() => setAboutSection(defaultAboutSection));
   }, []);
 
   return (
@@ -371,17 +396,17 @@ function MarketingSite() {
 
         <section className="section about-section" id="o-nas">
           <div>
-            <p className="eyebrow">O nás</p>
-            <h2>HERO GYM STUPAVA</h2>
+            <p className="eyebrow">{aboutSection.eyebrow}</p>
+            <h2>{aboutSection.heading}</h2>
           </div>
           <div className="about-copy">
-            <p>Z malého káčatka Cevagym, ktoré dovŕšilo 5 rokov sa stala dospelá labuť HERO GYM.</p>
-            <p>
-              Sme radi že Vás môžme privítať u nás „DOMA“, pretože dávame do toho všetko a vždy budeme, kým tu
-              budete vy pre nás.
-            </p>
-            <p>Tešíme sa na každú jednu Vašu návštevu. Radi Vám spravíme voňavú kávu.</p>
-            <p>Máte na výber z rôznych predtréningových ale aj potréningových nápojov.</p>
+            {aboutSection.body
+              .split(/\n+/)
+              .map((paragraph) => paragraph.trim())
+              .filter((paragraph) => paragraph.length > 0)
+              .map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
           </div>
         </section>
 
@@ -423,12 +448,14 @@ function AdminPage() {
     useState<GroupTrainingSection>(defaultGroupTrainingSection);
   const [pricingDraft, setPricingDraft] = useState<PricingSection>(defaultPricingSection);
   const [contactDraft, setContactDraft] = useState<ContactSection>(defaultContactSection);
+  const [aboutDraft, setAboutDraft] = useState<AboutSection>(defaultAboutSection);
   const [activeAdminSection, setActiveAdminSection] =
-    useState<"training" | "groupTraining" | "pricing" | "contact" | null>(null);
+    useState<"training" | "groupTraining" | "pricing" | "contact" | "about" | null>(null);
   const [trainingMessage, setTrainingMessage] = useState("");
   const [groupTrainingMessage, setGroupTrainingMessage] = useState("");
   const [pricingMessage, setPricingMessage] = useState("");
   const [contactMessage, setContactMessage] = useState("");
+  const [aboutMessage, setAboutMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTrainingLoading, setIsTrainingLoading] = useState(false);
   const [isTrainingSaving, setIsTrainingSaving] = useState(false);
@@ -438,6 +465,8 @@ function AdminPage() {
   const [isPricingSaving, setIsPricingSaving] = useState(false);
   const [isContactLoading, setIsContactLoading] = useState(false);
   const [isContactSaving, setIsContactSaving] = useState(false);
+  const [isAboutLoading, setIsAboutLoading] = useState(false);
+  const [isAboutSaving, setIsAboutSaving] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("herogym_admin_token");
@@ -461,6 +490,7 @@ function AdminPage() {
       void loadGroupTrainingSection();
       void loadPricingSection();
       void loadContactSection();
+      void loadAboutSection();
     }
   }, [adminName]);
 
@@ -561,6 +591,30 @@ function AdminPage() {
       setContactMessage(error instanceof Error ? error.message : "Kontakt sa nepodarilo načítať.");
     } finally {
       setIsContactLoading(false);
+    }
+  }
+
+  async function loadAboutSection() {
+    setIsAboutLoading(true);
+    setAboutMessage("");
+
+    try {
+      const response = await fetch("/api/admin/about-section", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Sekciu O nás sa nepodarilo načítať.");
+      }
+
+      setAboutDraft(data);
+    } catch (error) {
+      setAboutMessage(error instanceof Error ? error.message : "Sekciu O nás sa nepodarilo načítať.");
+    } finally {
+      setIsAboutLoading(false);
     }
   }
 
@@ -801,6 +855,35 @@ function AdminPage() {
     }
   }
 
+  async function saveAboutSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsAboutSaving(true);
+    setAboutMessage("");
+
+    try {
+      const response = await fetch("/api/admin/about-section", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(aboutDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Sekciu O nás sa nepodarilo uložiť.");
+      }
+
+      setAboutDraft(data);
+      setAboutMessage("Sekcia O nás je uložená.");
+    } catch (error) {
+      setAboutMessage(error instanceof Error ? error.message : "Sekciu O nás sa nepodarilo uložiť.");
+    } finally {
+      setIsAboutSaving(false);
+    }
+  }
+
   return (
     <main className="admin-page">
       <div className="admin-bg" aria-hidden="true">
@@ -850,6 +933,13 @@ function AdminPage() {
                 onClick={() => setActiveAdminSection((current) => (current === "contact" ? null : "contact"))}
               >
                 Kontakt
+              </button>
+              <button
+                className={activeAdminSection === "about" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveAdminSection((current) => (current === "about" ? null : "about"))}
+              >
+                O nás
               </button>
             </div>
 
@@ -1114,6 +1204,37 @@ function AdminPage() {
                 {contactMessage ? <p className="admin-message">{contactMessage}</p> : null}
                 <button className="button primary" disabled={isContactSaving || isContactLoading} type="submit">
                   <Save size={18} /> {isContactSaving ? "Ukladám..." : "Uložiť kontakt"}
+                </button>
+              </form>
+            ) : null}
+
+            {activeAdminSection === "about" ? (
+              <form className="admin-editor-form" onSubmit={saveAboutSection}>
+                <label>
+                  Malý nadpis
+                  <input
+                    value={aboutDraft.eyebrow}
+                    onChange={(event) => setAboutDraft((current) => ({ ...current, eyebrow: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Hlavný nadpis
+                  <input
+                    value={aboutDraft.heading}
+                    onChange={(event) => setAboutDraft((current) => ({ ...current, heading: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Text
+                  <textarea
+                    value={aboutDraft.body}
+                    onChange={(event) => setAboutDraft((current) => ({ ...current, body: event.target.value }))}
+                    rows={10}
+                  />
+                </label>
+                {aboutMessage ? <p className="admin-message">{aboutMessage}</p> : null}
+                <button className="button primary" disabled={isAboutSaving || isAboutLoading} type="submit">
+                  <Save size={18} /> {isAboutSaving ? "Ukladám..." : "Uložiť O nás"}
                 </button>
               </form>
             ) : null}

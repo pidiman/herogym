@@ -100,6 +100,17 @@ const defaultContactSection = {
   ],
 };
 
+const defaultAboutSection = {
+  eyebrow: "O nás",
+  heading: "HERO GYM STUPAVA",
+  body: [
+    "Z malého káčatka Cevagym, ktoré dovŕšilo 5 rokov sa stala dospelá labuť HERO GYM.",
+    "Sme radi že Vás môžme privítať u nás „DOMA“, pretože dávame do toho všetko a vždy budeme, kým tu budete vy pre nás.",
+    "Tešíme sa na každú jednu Vašu návštevu. Radi Vám spravíme voňavú kávu.",
+    "Máte na výber z rôznych predtréningových ale aj potréningových nápojov.",
+  ].join("\n\n"),
+};
+
 async function initDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_users (
@@ -186,6 +197,16 @@ async function initDatabase() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS about_section (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      eyebrow TEXT NOT NULL,
+      heading TEXT NOT NULL,
+      body TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [adminUser]);
   if (existing.rowCount === 0) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -260,6 +281,15 @@ async function initDatabase() {
         item.sort_order,
       ]);
     }
+  }
+
+  const aboutSection = await pool.query("SELECT id FROM about_section WHERE id = 1");
+  if (aboutSection.rowCount === 0) {
+    await pool.query("INSERT INTO about_section (id, eyebrow, heading, body) VALUES (1, $1, $2, $3)", [
+      defaultAboutSection.eyebrow,
+      defaultAboutSection.heading,
+      defaultAboutSection.body,
+    ]);
   }
 }
 
@@ -377,6 +407,25 @@ async function getContactSection() {
 
 app.get("/api/contact-section", async (_req, res) => {
   res.json(await getContactSection());
+});
+
+async function getAboutSection() {
+  const result = await pool.query("SELECT eyebrow, heading, body FROM about_section WHERE id = 1");
+  const section = result.rows[0];
+
+  if (!section) {
+    return defaultAboutSection;
+  }
+
+  return {
+    eyebrow: section.eyebrow,
+    heading: section.heading,
+    body: section.body,
+  };
+}
+
+app.get("/api/about-section", async (_req, res) => {
+  res.json(await getAboutSection());
 });
 
 app.post("/api/admin/login", async (req, res) => {
@@ -630,6 +679,27 @@ app.put("/api/admin/contact-section", authenticate, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+app.get("/api/admin/about-section", authenticate, async (_req, res) => {
+  res.json(await getAboutSection());
+});
+
+app.put("/api/admin/about-section", authenticate, async (req, res) => {
+  const eyebrow = String(req.body?.eyebrow || "").trim();
+  const heading = String(req.body?.heading || "").trim();
+  const body = String(req.body?.body || "").trim();
+
+  if (!eyebrow || !heading || !body) {
+    return res.status(400).json({ message: "Všetky polia sú povinné." });
+  }
+
+  await pool.query(
+    "INSERT INTO about_section (id, eyebrow, heading, body) VALUES (1, $1, $2, $3) ON CONFLICT (id) DO UPDATE SET eyebrow = EXCLUDED.eyebrow, heading = EXCLUDED.heading, body = EXCLUDED.body, updated_at = NOW()",
+    [eyebrow, heading, body],
+  );
+
+  res.json(await getAboutSection());
 });
 
 initDatabase()
