@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import express from "express";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -9,6 +11,7 @@ const port = Number(process.env.PORT || 3078);
 const jwtSecret = process.env.JWT_SECRET;
 const adminUser = process.env.ADMIN_USER;
 const adminPassword = process.env.ADMIN_PASSWORD;
+const mailFrom = process.env.MAIL_FROM || "noreply@localhost";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");
@@ -25,6 +28,24 @@ if (!adminUser || !adminPassword) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
+
+const smtpAuthEnabled = String(process.env.SMTP_AUTH || "false").toLowerCase() === "true";
+const smtpTransport = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || "smtp-relay",
+  port: Number(process.env.SMTP_PORT || 25),
+  secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+  ...(smtpAuthEnabled
+    ? {
+        auth: {
+          user: process.env.SMTP_USER || "",
+          pass: process.env.SMTP_PASS || "",
+        },
+      }
+    : {}),
+});
+
+const RESET_CODE_TTL_MIN = 30;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const app = express();
 app.use(express.json());
@@ -124,6 +145,7 @@ async function initDatabase() {
   `);
 
   await pool.query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'");
+  await pool.query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT");
   await pool.query(`
     DO $$
     BEGIN
@@ -133,8 +155,35 @@ async function initDatabase() {
       ) THEN
         ALTER TABLE admin_users ADD CONSTRAINT admin_users_role_check CHECK (role IN ('admin', 'moderator'));
       END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_name = 'admin_users' AND constraint_name = 'admin_users_email_unique'
+      ) THEN
+        ALTER TABLE admin_users ADD CONSTRAINT admin_users_email_unique UNIQUE (email);
+      END IF;
     END$$;
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+      code_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS password_reset_codes_user_idx ON password_reset_codes(user_id)");
+
+  await pool.query(
+    "UPDATE admin_users SET email = $1 WHERE username = 'admin' AND (email IS NULL OR email = '')",
+    ["jakub.demeter@gmail.com"],
+  );
+  await pool.query(
+    "UPDATE admin_users SET email = $1 WHERE username = 'lubenko.holoska' AND (email IS NULL OR email = '')",
+    ["pidiman@gmail.com"],
+  );
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS training_section (
@@ -494,12 +543,13 @@ app.get("/api/admin/me", authenticate, (req, res) => {
 
 app.get("/api/admin/users", authenticate, requireAdmin, async (_req, res) => {
   const result = await pool.query(
-    "SELECT id, username, role, created_at FROM admin_users ORDER BY created_at ASC, id ASC",
+    "SELECT id, username, email, role, created_at FROM admin_users ORDER BY created_at ASC, id ASC",
   );
   res.json(
     result.rows.map((row) => ({
       id: row.id,
       username: row.username,
+      email: row.email,
       role: row.role,
       createdAt: row.created_at,
     })),
@@ -510,6 +560,7 @@ app.post("/api/admin/users", authenticate, requireAdmin, async (req, res) => {
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
   const role = String(req.body?.role || "").trim();
+  const email = String(req.body?.email || "").trim().toLowerCase();
 
   if (!username || !password) {
     return res.status(400).json({ message: "Meno a heslo sú povinné." });
@@ -523,21 +574,33 @@ app.post("/api/admin/users", authenticate, requireAdmin, async (req, res) => {
     return res.status(400).json({ message: "Rola musí byť admin alebo moderator." });
   }
 
+  if (email && !emailRegex.test(email)) {
+    return res.status(400).json({ message: "Neplatný formát emailu." });
+  }
+
   const existing = await pool.query("SELECT id FROM admin_users WHERE username = $1", [username]);
   if (existing.rowCount > 0) {
     return res.status(409).json({ message: "Používateľ s týmto menom už existuje." });
   }
 
+  if (email) {
+    const emailExists = await pool.query("SELECT id FROM admin_users WHERE email = $1", [email]);
+    if (emailExists.rowCount > 0) {
+      return res.status(409).json({ message: "Používateľ s týmto emailom už existuje." });
+    }
+  }
+
   const passwordHash = await bcrypt.hash(password, 12);
   const result = await pool.query(
-    "INSERT INTO admin_users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, role, created_at",
-    [username, passwordHash, role],
+    "INSERT INTO admin_users (username, password_hash, role, email) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role, created_at",
+    [username, passwordHash, role, email || null],
   );
   const row = result.rows[0];
 
   res.status(201).json({
     id: row.id,
     username: row.username,
+    email: row.email,
     role: row.role,
     createdAt: row.created_at,
   });
@@ -551,6 +614,8 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
 
   const password = req.body?.password === undefined ? null : String(req.body.password);
   const role = req.body?.role === undefined ? null : String(req.body.role).trim();
+  const email =
+    req.body?.email === undefined ? null : String(req.body.email).trim().toLowerCase();
 
   if (role !== null && role !== "admin" && role !== "moderator") {
     return res.status(400).json({ message: "Rola musí byť admin alebo moderator." });
@@ -558,6 +623,10 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
 
   if (password !== null && password.length > 0 && password.length < 8) {
     return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
+  }
+
+  if (email !== null && email.length > 0 && !emailRegex.test(email)) {
+    return res.status(400).json({ message: "Neplatný formát emailu." });
   }
 
   const target = await pool.query("SELECT id, role FROM admin_users WHERE id = $1", [id]);
@@ -576,6 +645,13 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
     }
   }
 
+  if (email !== null && email.length > 0) {
+    const emailExists = await pool.query("SELECT id FROM admin_users WHERE email = $1 AND id <> $2", [email, id]);
+    if (emailExists.rowCount > 0) {
+      return res.status(409).json({ message: "Používateľ s týmto emailom už existuje." });
+    }
+  }
+
   const updates = [];
   const values = [];
   if (password !== null && password.length > 0) {
@@ -586,6 +662,10 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
     values.push(role);
     updates.push(`role = $${values.length}`);
   }
+  if (email !== null) {
+    values.push(email.length > 0 ? email : null);
+    updates.push(`email = $${values.length}`);
+  }
 
   if (updates.length === 0) {
     return res.status(400).json({ message: "Nič na uloženie." });
@@ -595,7 +675,7 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
   values.push(id);
 
   const result = await pool.query(
-    `UPDATE admin_users SET ${updates.join(", ")} WHERE id = $${values.length} RETURNING id, username, role, created_at`,
+    `UPDATE admin_users SET ${updates.join(", ")} WHERE id = $${values.length} RETURNING id, username, email, role, created_at`,
     values,
   );
   const row = result.rows[0];
@@ -603,6 +683,7 @@ app.put("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => 
   res.json({
     id: row.id,
     username: row.username,
+    email: row.email,
     role: row.role,
     createdAt: row.created_at,
   });
@@ -883,6 +964,116 @@ app.put("/api/admin/about-section", authenticate, async (req, res) => {
   );
 
   res.json(await getAboutSection());
+});
+
+app.post("/api/admin/password-reset/request", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+
+  if (!email || !emailRegex.test(email)) {
+    return res.status(400).json({ message: "Zadaj platný email." });
+  }
+
+  const result = await pool.query(
+    "SELECT id, username, email FROM admin_users WHERE email = $1",
+    [email],
+  );
+  const user = result.rows[0];
+
+  if (!user) {
+    return res.status(404).json({ message: "Tento email neexistuje." });
+  }
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const codeHash = await bcrypt.hash(code, 12);
+
+  await pool.query(
+    "UPDATE password_reset_codes SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
+    [user.id],
+  );
+  await pool.query(
+    "INSERT INTO password_reset_codes (user_id, code_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '" +
+      RESET_CODE_TTL_MIN +
+      " minutes')",
+    [user.id, codeHash],
+  );
+
+  try {
+    await smtpTransport.sendMail({
+      from: mailFrom,
+      to: user.email,
+      subject: "Reset hesla – HERO GYM Stupava",
+      text:
+        `Ahoj ${user.username},\n\n` +
+        `prijali sme žiadosť o reset hesla pre tvoj admin účet.\n` +
+        `Tvoj jednorazový kód: ${code}\n\n` +
+        `Kód platí ${RESET_CODE_TTL_MIN} minút. Ak si reset nepožiadal/a, túto správu ignoruj.\n`,
+    });
+  } catch (error) {
+    console.error("Failed to send reset email", error);
+    return res.status(500).json({ message: "Email sa nepodarilo odoslať." });
+  }
+
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/password-reset/confirm", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const code = String(req.body?.code || "").trim();
+  const password = String(req.body?.password || "");
+
+  if (!email || !code || !password) {
+    return res.status(400).json({ message: "Email, kód a nové heslo sú povinné." });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
+  }
+
+  const userResult = await pool.query("SELECT id FROM admin_users WHERE email = $1", [email]);
+  const user = userResult.rows[0];
+  if (!user) {
+    return res.status(400).json({ message: "Neplatný email alebo kód." });
+  }
+
+  const codesResult = await pool.query(
+    "SELECT id, code_hash FROM password_reset_codes WHERE user_id = $1 AND used_at IS NULL AND expires_at > NOW() ORDER BY created_at DESC LIMIT 5",
+    [user.id],
+  );
+
+  let matched = null;
+  for (const row of codesResult.rows) {
+    if (await bcrypt.compare(code, row.code_hash)) {
+      matched = row;
+      break;
+    }
+  }
+
+  if (!matched) {
+    return res.status(400).json({ message: "Neplatný alebo expirovaný kód." });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+      [passwordHash, user.id],
+    );
+    await client.query(
+      "UPDATE password_reset_codes SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
+      [user.id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(error);
+    return res.status(500).json({ message: "Heslo sa nepodarilo zmeniť." });
+  } finally {
+    client.release();
+  }
+
+  res.json({ ok: true });
 });
 
 initDatabase()

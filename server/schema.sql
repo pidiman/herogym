@@ -2,10 +2,22 @@ CREATE TABLE IF NOT EXISTS admin_users (
   id SERIAL PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  email TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'moderator' CHECK (role IN ('admin', 'moderator')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS password_reset_codes_user_idx ON password_reset_codes(user_id);
 
 CREATE TABLE IF NOT EXISTS training_section (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),

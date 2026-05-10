@@ -188,9 +188,12 @@ type AdminRole = "admin" | "moderator";
 type AdminUser = {
   id: number;
   username: string;
+  email: string | null;
   role: AdminRole;
   createdAt?: string;
 };
+
+type ResetFlowMode = "login" | "request" | "confirm" | "done";
 
 const iconLabels: Record<keyof typeof iconMap, string> = {
   dumbbell: "Činka",
@@ -616,9 +619,17 @@ function AdminPage() {
   const [aboutDraft, setAboutDraft] = useState<AboutSection>(defaultAboutSection);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<AdminRole>("moderator");
   const [userPasswords, setUserPasswords] = useState<Record<number, string>>({});
+  const [userEmails, setUserEmails] = useState<Record<number, string>>({});
+  const [resetMode, setResetMode] = useState<ResetFlowMode>("login");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState("");
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [usersMessage, setUsersMessage] = useState("");
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
@@ -818,11 +829,78 @@ function AdminPage() {
       }
 
       setUsers(data);
+      setUserEmails(
+        Object.fromEntries(
+          (data as AdminUser[]).map((user) => [user.id, user.email || ""]),
+        ),
+      );
     } catch (error) {
       setUsersMessage(error instanceof Error ? error.message : "Používateľov sa nepodarilo načítať.");
     } finally {
       setIsUsersLoading(false);
     }
+  }
+
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsResetSubmitting(true);
+    setResetMessage("");
+
+    try {
+      const response = await fetch("/api/admin/password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Žiadosť sa nepodarila.");
+      }
+
+      setResetMode("confirm");
+      setResetMessage("Kód sme ti poslali na email. Skontroluj si schránku.");
+    } catch (error) {
+      setResetMessage(error instanceof Error ? error.message : "Žiadosť sa nepodarila.");
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  }
+
+  async function confirmPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsResetSubmitting(true);
+    setResetMessage("");
+
+    try {
+      const response = await fetch("/api/admin/password-reset/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail, code: resetCode, password: resetPassword }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Reset sa nepodaril.");
+      }
+
+      setResetMode("done");
+      setResetMessage("Heslo bolo zmenené. Môžeš sa prihlásiť.");
+      setResetCode("");
+      setResetPassword("");
+    } catch (error) {
+      setResetMessage(error instanceof Error ? error.message : "Reset sa nepodaril.");
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  }
+
+  function backToLogin() {
+    setResetMode("login");
+    setResetEmail("");
+    setResetCode("");
+    setResetPassword("");
+    setResetMessage("");
   }
 
   async function createUser(event: FormEvent<HTMLFormElement>) {
@@ -837,7 +915,12 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username: newUserName, password: newUserPassword, role: newUserRole }),
+        body: JSON.stringify({
+          username: newUserName,
+          password: newUserPassword,
+          role: newUserRole,
+          email: newUserEmail,
+        }),
       });
       const data = await response.json();
 
@@ -846,7 +929,9 @@ function AdminPage() {
       }
 
       setUsers((current) => [...current, data]);
+      setUserEmails((current) => ({ ...current, [data.id]: data.email || "" }));
       setNewUserName("");
+      setNewUserEmail("");
       setNewUserPassword("");
       setNewUserRole("moderator");
       setUsersMessage(`Používateľ ${data.username} bol vytvorený.`);
@@ -857,7 +942,7 @@ function AdminPage() {
     }
   }
 
-  async function updateUser(id: number, payload: { password?: string; role?: AdminRole }) {
+  async function updateUser(id: number, payload: { password?: string; role?: AdminRole; email?: string }) {
     setUpdatingUserId(id);
     setUsersMessage("");
 
@@ -877,11 +962,14 @@ function AdminPage() {
       }
 
       setUsers((current) => current.map((user) => (user.id === id ? data : user)));
-      setUserPasswords((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
+      setUserEmails((current) => ({ ...current, [id]: data.email || "" }));
+      if (payload.password !== undefined) {
+        setUserPasswords((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      }
       setUsersMessage(`Používateľ ${data.username} bol upravený.`);
     } catch (error) {
       setUsersMessage(error instanceof Error ? error.message : "Používateľa sa nepodarilo upraviť.");
@@ -1578,6 +1666,15 @@ function AdminPage() {
                     />
                   </label>
                   <label>
+                    Email
+                    <input
+                      type="email"
+                      value={newUserEmail}
+                      onChange={(event) => setNewUserEmail(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
                     Heslo
                     <input
                       type="password"
@@ -1639,6 +1736,28 @@ function AdminPage() {
                           </select>
                         </label>
                         <label>
+                          Email
+                          <input
+                            type="email"
+                            value={userEmails[user.id] ?? user.email ?? ""}
+                            onChange={(event) =>
+                              setUserEmails((current) => ({ ...current, [user.id]: event.target.value }))
+                            }
+                            autoComplete="off"
+                            disabled={isBusy}
+                          />
+                        </label>
+                        <button
+                          className="button ghost"
+                          type="button"
+                          disabled={isBusy || (userEmails[user.id] ?? user.email ?? "") === (user.email ?? "")}
+                          onClick={() =>
+                            updateUser(user.id, { email: userEmails[user.id] ?? "" })
+                          }
+                        >
+                          <Save size={18} /> {isBusy ? "Ukladám..." : "Uložiť email"}
+                        </button>
+                        <label>
                           Nové heslo
                           <input
                             type="password"
@@ -1668,27 +1787,117 @@ function AdminPage() {
           </div>
         ) : (
           <>
-            <h1 id="admin-title">Prihlásenie</h1>
-            <p className="admin-copy">Zadaj meno a heslo uložené v databáze.</p>
-            <form className="admin-form" onSubmit={handleSubmit}>
-              <label>
-                Meno
-                <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-              </label>
-              <label>
-                Heslo
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type="password"
-                  autoComplete="current-password"
-                />
-              </label>
-              {message ? <p className="admin-message">{message}</p> : null}
-              <button className="button primary" disabled={isLoading} type="submit">
-                {isLoading ? "Overujem..." : "Prihlásiť"}
-              </button>
-            </form>
+            {resetMode === "login" ? (
+              <>
+                <h1 id="admin-title">Prihlásenie</h1>
+                <p className="admin-copy">Zadaj meno a heslo uložené v databáze.</p>
+                <form className="admin-form" onSubmit={handleSubmit}>
+                  <label>
+                    Meno
+                    <input
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoComplete="username"
+                    />
+                  </label>
+                  <label>
+                    Heslo
+                    <input
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      type="password"
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  {message ? <p className="admin-message">{message}</p> : null}
+                  <button className="button primary" disabled={isLoading} type="submit">
+                    {isLoading ? "Overujem..." : "Prihlásiť"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button ghost"
+                    onClick={() => {
+                      setMessage("");
+                      setResetMessage("");
+                      setResetMode("request");
+                    }}
+                  >
+                    Zabudnuté heslo?
+                  </button>
+                </form>
+              </>
+            ) : null}
+
+            {resetMode === "request" ? (
+              <>
+                <h1 id="admin-title">Reset hesla</h1>
+                <p className="admin-copy">Zadaj email priradený k tvojmu účtu.</p>
+                <form className="admin-form" onSubmit={requestPasswordReset}>
+                  <label>
+                    Email
+                    <input
+                      value={resetEmail}
+                      onChange={(event) => setResetEmail(event.target.value)}
+                      type="email"
+                      autoComplete="email"
+                    />
+                  </label>
+                  {resetMessage ? <p className="admin-message">{resetMessage}</p> : null}
+                  <button className="button primary" disabled={isResetSubmitting} type="submit">
+                    {isResetSubmitting ? "Odosielam..." : "Odoslať kód"}
+                  </button>
+                  <button type="button" className="button ghost" onClick={backToLogin}>
+                    Späť na prihlásenie
+                  </button>
+                </form>
+              </>
+            ) : null}
+
+            {resetMode === "confirm" ? (
+              <>
+                <h1 id="admin-title">Zadaj kód</h1>
+                <p className="admin-copy">
+                  Skontroluj schránku <strong>{resetEmail}</strong> a zadaj kód s novým heslom.
+                </p>
+                <form className="admin-form" onSubmit={confirmPasswordReset}>
+                  <label>
+                    Kód z emailu
+                    <input
+                      value={resetCode}
+                      onChange={(event) => setResetCode(event.target.value)}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                    />
+                  </label>
+                  <label>
+                    Nové heslo
+                    <input
+                      value={resetPassword}
+                      onChange={(event) => setResetPassword(event.target.value)}
+                      type="password"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  {resetMessage ? <p className="admin-message">{resetMessage}</p> : null}
+                  <button className="button primary" disabled={isResetSubmitting} type="submit">
+                    {isResetSubmitting ? "Ukladám..." : "Zmeniť heslo"}
+                  </button>
+                  <button type="button" className="button ghost" onClick={backToLogin}>
+                    Späť na prihlásenie
+                  </button>
+                </form>
+              </>
+            ) : null}
+
+            {resetMode === "done" ? (
+              <>
+                <h1 id="admin-title">Heslo zmenené</h1>
+                <p className="admin-copy">{resetMessage}</p>
+                <button type="button" className="button primary" onClick={backToLogin}>
+                  Späť na prihlásenie
+                </button>
+              </>
+            ) : null}
           </>
         )}
       </section>
