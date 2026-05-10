@@ -217,6 +217,23 @@ function Root() {
   return <MarketingSite />;
 }
 
+function getMapEmbedUrl(href: string): string | null {
+  if (!href) {
+    return null;
+  }
+
+  try {
+    const url = new URL(href);
+    if (!url.hostname.includes("google")) {
+      return null;
+    }
+    url.searchParams.set("output", "embed");
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function MarketingSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Všetko");
@@ -425,16 +442,35 @@ function MarketingSite() {
             <h2>{contactSection.heading}</h2>
             <p className="notice">{contactSection.notice}</p>
           </div>
-          <div className="contact-panel">
-            {contactSection.items.map((item) => {
-              const Icon = contactIconMap[item.icon] || Phone;
-              const external = item.href.startsWith("http");
+          <div className="contact-content">
+            <div className="contact-panel">
+              {contactSection.items.map((item) => {
+                const Icon = contactIconMap[item.icon] || Phone;
+                const external = item.href.startsWith("http");
+                return (
+                  <a href={item.href} key={item.id || item.label} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>
+                    <Icon size={20} /> {item.label}
+                  </a>
+                );
+              })}
+            </div>
+            {(() => {
+              const mapItem = contactSection.items.find((item) => item.icon === "map");
+              const mapEmbedUrl = mapItem ? getMapEmbedUrl(mapItem.href) : null;
+              if (!mapEmbedUrl) {
+                return null;
+              }
               return (
-                <a href={item.href} key={item.id || item.label} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}>
-                  <Icon size={20} /> {item.label}
-                </a>
+                <div className="contact-map">
+                  <iframe
+                    src={mapEmbedUrl}
+                    title={mapItem?.label || "Mapa"}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
               );
-            })}
+            })()}
           </div>
         </section>
       </main>
