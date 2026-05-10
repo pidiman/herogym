@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS training_cards (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS group_training_section (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  eyebrow TEXT NOT NULL,
+  heading TEXT NOT NULL,
+  body TEXT NOT NULL,
+  schedule_primary TEXT NOT NULL,
+  schedule_secondary TEXT NOT NULL,
+  price TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS pricing_section (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   heading TEXT NOT NULL,

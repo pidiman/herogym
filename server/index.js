@@ -61,6 +61,15 @@ const defaultTrainingSection = {
   ],
 };
 
+const defaultGroupTrainingSection = {
+  eyebrow: "Skupinový tréning",
+  heading: "Kruhový tréning pre ženy",
+  body: "Kruhový intervalový tréning zameraný na problémové partie, vhodný pre každú výkonnostnú kategóriu.",
+  schedulePrimary: "PON, ŠTV 17:15",
+  scheduleSecondary: "NE 7:30",
+  price: "Tréning 8€",
+};
+
 const defaultPricingSection = {
   heading: "Jasné vstupy bez hľadania v tabuľkách.",
   items: [
@@ -119,6 +128,19 @@ async function initDatabase() {
       icon TEXT NOT NULL DEFAULT 'dumbbell',
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_training_section (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      eyebrow TEXT NOT NULL,
+      heading TEXT NOT NULL,
+      body TEXT NOT NULL,
+      schedule_primary TEXT NOT NULL,
+      schedule_secondary TEXT NOT NULL,
+      price TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
@@ -186,6 +208,21 @@ async function initDatabase() {
         [card.title, card.body, card.icon, card.sort_order],
       );
     }
+  }
+
+  const groupTrainingSection = await pool.query("SELECT id FROM group_training_section WHERE id = 1");
+  if (groupTrainingSection.rowCount === 0) {
+    await pool.query(
+      "INSERT INTO group_training_section (id, eyebrow, heading, body, schedule_primary, schedule_secondary, price) VALUES (1, $1, $2, $3, $4, $5, $6)",
+      [
+        defaultGroupTrainingSection.eyebrow,
+        defaultGroupTrainingSection.heading,
+        defaultGroupTrainingSection.body,
+        defaultGroupTrainingSection.schedulePrimary,
+        defaultGroupTrainingSection.scheduleSecondary,
+        defaultGroupTrainingSection.price,
+      ],
+    );
   }
 
   const pricingSection = await pool.query("SELECT id FROM pricing_section WHERE id = 1");
@@ -269,6 +306,30 @@ async function getTrainingSection() {
 
 app.get("/api/training-section", async (_req, res) => {
   res.json(await getTrainingSection());
+});
+
+async function getGroupTrainingSection() {
+  const result = await pool.query(
+    "SELECT eyebrow, heading, body, schedule_primary, schedule_secondary, price FROM group_training_section WHERE id = 1",
+  );
+  const section = result.rows[0];
+
+  if (!section) {
+    return defaultGroupTrainingSection;
+  }
+
+  return {
+    eyebrow: section.eyebrow,
+    heading: section.heading,
+    body: section.body,
+    schedulePrimary: section.schedule_primary,
+    scheduleSecondary: section.schedule_secondary,
+    price: section.price,
+  };
+}
+
+app.get("/api/group-training-section", async (_req, res) => {
+  res.json(await getGroupTrainingSection());
 });
 
 async function getPricingSection() {
@@ -408,6 +469,30 @@ app.put("/api/admin/training-section", authenticate, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+app.get("/api/admin/group-training-section", authenticate, async (_req, res) => {
+  res.json(await getGroupTrainingSection());
+});
+
+app.put("/api/admin/group-training-section", authenticate, async (req, res) => {
+  const eyebrow = String(req.body?.eyebrow || "").trim();
+  const heading = String(req.body?.heading || "").trim();
+  const body = String(req.body?.body || "").trim();
+  const schedulePrimary = String(req.body?.schedulePrimary || "").trim();
+  const scheduleSecondary = String(req.body?.scheduleSecondary || "").trim();
+  const price = String(req.body?.price || "").trim();
+
+  if (!eyebrow || !heading || !body || !schedulePrimary || !scheduleSecondary || !price) {
+    return res.status(400).json({ message: "Všetky polia sú povinné." });
+  }
+
+  await pool.query(
+    "INSERT INTO group_training_section (id, eyebrow, heading, body, schedule_primary, schedule_secondary, price) VALUES (1, $1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET eyebrow = EXCLUDED.eyebrow, heading = EXCLUDED.heading, body = EXCLUDED.body, schedule_primary = EXCLUDED.schedule_primary, schedule_secondary = EXCLUDED.schedule_secondary, price = EXCLUDED.price, updated_at = NOW()",
+    [eyebrow, heading, body, schedulePrimary, scheduleSecondary, price],
+  );
+
+  res.json(await getGroupTrainingSection());
 });
 
 app.get("/api/admin/pricing-section", authenticate, async (_req, res) => {

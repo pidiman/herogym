@@ -54,6 +54,15 @@ type TrainingSection = {
   cards: TrainingCard[];
 };
 
+type GroupTrainingSection = {
+  eyebrow: string;
+  heading: string;
+  body: string;
+  schedulePrimary: string;
+  scheduleSecondary: string;
+  price: string;
+};
+
 type PricingItem = {
   id?: number;
   label: string;
@@ -134,6 +143,15 @@ const defaultTrainingSection: TrainingSection = {
   ],
 };
 
+const defaultGroupTrainingSection: GroupTrainingSection = {
+  eyebrow: "Skupinový tréning",
+  heading: "Kruhový tréning pre ženy",
+  body: "Kruhový intervalový tréning zameraný na problémové partie, vhodný pre každú výkonnostnú kategóriu.",
+  schedulePrimary: "PON, ŠTV 17:15",
+  scheduleSecondary: "NE 7:30",
+  price: "Tréning 8€",
+};
+
 const defaultPricingSection: PricingSection = {
   heading: "Jasné vstupy bez hľadania v tabuľkách.",
   items: [
@@ -177,6 +195,8 @@ function MarketingSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Všetko");
   const [trainingSection, setTrainingSection] = useState<TrainingSection>(defaultTrainingSection);
+  const [groupTrainingSection, setGroupTrainingSection] =
+    useState<GroupTrainingSection>(defaultGroupTrainingSection);
   const [pricingSection, setPricingSection] = useState<PricingSection>(defaultPricingSection);
   const [contactSection, setContactSection] = useState<ContactSection>(defaultContactSection);
   const tags = useMemo(() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))], []);
@@ -187,6 +207,13 @@ function MarketingSite() {
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: TrainingSection) => setTrainingSection(data))
       .catch(() => setTrainingSection(defaultTrainingSection));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/group-training-section")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: GroupTrainingSection) => setGroupTrainingSection(data))
+      .catch(() => setGroupTrainingSection(defaultGroupTrainingSection));
   }, []);
 
   useEffect(() => {
@@ -286,14 +313,14 @@ function MarketingSite() {
 
         <section className="training-band">
           <div>
-            <p className="eyebrow">Skupinový tréning</p>
-            <h2>Kruhový tréning pre ženy</h2>
-            <p>Kruhový intervalový tréning zameraný na problémové partie, vhodný pre každú výkonnostnú kategóriu.</p>
+            <p className="eyebrow">{groupTrainingSection.eyebrow}</p>
+            <h2>{groupTrainingSection.heading}</h2>
+            <p>{groupTrainingSection.body}</p>
           </div>
           <div className="schedule">
-            <span>PON, ŠTV 17:15</span>
-            <span>NE 7:30</span>
-            <strong>Tréning 8€</strong>
+            <span>{groupTrainingSection.schedulePrimary}</span>
+            <span>{groupTrainingSection.scheduleSecondary}</span>
+            <strong>{groupTrainingSection.price}</strong>
           </div>
         </section>
 
@@ -392,15 +419,21 @@ function AdminPage() {
   const [adminName, setAdminName] = useState("");
   const [message, setMessage] = useState("");
   const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(defaultTrainingSection);
+  const [groupTrainingDraft, setGroupTrainingDraft] =
+    useState<GroupTrainingSection>(defaultGroupTrainingSection);
   const [pricingDraft, setPricingDraft] = useState<PricingSection>(defaultPricingSection);
   const [contactDraft, setContactDraft] = useState<ContactSection>(defaultContactSection);
-  const [activeAdminSection, setActiveAdminSection] = useState<"training" | "pricing" | "contact" | null>(null);
+  const [activeAdminSection, setActiveAdminSection] =
+    useState<"training" | "groupTraining" | "pricing" | "contact" | null>(null);
   const [trainingMessage, setTrainingMessage] = useState("");
+  const [groupTrainingMessage, setGroupTrainingMessage] = useState("");
   const [pricingMessage, setPricingMessage] = useState("");
   const [contactMessage, setContactMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTrainingLoading, setIsTrainingLoading] = useState(false);
   const [isTrainingSaving, setIsTrainingSaving] = useState(false);
+  const [isGroupTrainingLoading, setIsGroupTrainingLoading] = useState(false);
+  const [isGroupTrainingSaving, setIsGroupTrainingSaving] = useState(false);
   const [isPricingLoading, setIsPricingLoading] = useState(false);
   const [isPricingSaving, setIsPricingSaving] = useState(false);
   const [isContactLoading, setIsContactLoading] = useState(false);
@@ -425,6 +458,7 @@ function AdminPage() {
   useEffect(() => {
     if (adminName) {
       void loadTrainingSection();
+      void loadGroupTrainingSection();
       void loadPricingSection();
       void loadContactSection();
     }
@@ -455,6 +489,30 @@ function AdminPage() {
       setTrainingMessage(error instanceof Error ? error.message : "Sekciu sa nepodarilo načítať.");
     } finally {
       setIsTrainingLoading(false);
+    }
+  }
+
+  async function loadGroupTrainingSection() {
+    setIsGroupTrainingLoading(true);
+    setGroupTrainingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/group-training-section", {
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Skupinový tréning sa nepodarilo načítať.");
+      }
+
+      setGroupTrainingDraft(data);
+    } catch (error) {
+      setGroupTrainingMessage(error instanceof Error ? error.message : "Skupinový tréning sa nepodarilo načítať.");
+    } finally {
+      setIsGroupTrainingLoading(false);
     }
   }
 
@@ -600,6 +658,35 @@ function AdminPage() {
     }
   }
 
+  async function saveGroupTrainingSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsGroupTrainingSaving(true);
+    setGroupTrainingMessage("");
+
+    try {
+      const response = await fetch("/api/admin/group-training-section", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(groupTrainingDraft),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Skupinový tréning sa nepodarilo uložiť.");
+      }
+
+      setGroupTrainingDraft(data);
+      setGroupTrainingMessage("Skupinový tréning je uložený.");
+    } catch (error) {
+      setGroupTrainingMessage(error instanceof Error ? error.message : "Skupinový tréning sa nepodarilo uložiť.");
+    } finally {
+      setIsGroupTrainingSaving(false);
+    }
+  }
+
   function updatePricingItem(index: number, nextItem: PricingItem) {
     setPricingDraft((current) => ({
       ...current,
@@ -742,6 +829,15 @@ function AdminPage() {
                 Tréningy
               </button>
               <button
+                className={activeAdminSection === "groupTraining" ? "is-active" : ""}
+                type="button"
+                onClick={() =>
+                  setActiveAdminSection((current) => (current === "groupTraining" ? null : "groupTraining"))
+                }
+              >
+                Skupinový tréning
+              </button>
+              <button
                 className={activeAdminSection === "pricing" ? "is-active" : ""}
                 type="button"
                 onClick={() => setActiveAdminSection((current) => (current === "pricing" ? null : "pricing"))}
@@ -825,6 +921,74 @@ function AdminPage() {
                 {trainingMessage ? <p className="admin-message">{trainingMessage}</p> : null}
                 <button className="button primary" disabled={isTrainingSaving || isTrainingLoading} type="submit">
                   <Save size={18} /> {isTrainingSaving ? "Ukladám..." : "Uložiť tréningy"}
+                </button>
+              </form>
+            ) : null}
+
+            {activeAdminSection === "groupTraining" ? (
+              <form className="admin-editor-form" onSubmit={saveGroupTrainingSection}>
+                <label>
+                  Malý nadpis
+                  <input
+                    value={groupTrainingDraft.eyebrow}
+                    onChange={(event) =>
+                      setGroupTrainingDraft((current) => ({ ...current, eyebrow: event.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  Hlavný nadpis
+                  <input
+                    value={groupTrainingDraft.heading}
+                    onChange={(event) =>
+                      setGroupTrainingDraft((current) => ({ ...current, heading: event.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  Text
+                  <textarea
+                    value={groupTrainingDraft.body}
+                    onChange={(event) =>
+                      setGroupTrainingDraft((current) => ({ ...current, body: event.target.value }))
+                    }
+                    rows={4}
+                  />
+                </label>
+                <div className="admin-cards-editor">
+                  <label>
+                    Prvý čas
+                    <input
+                      value={groupTrainingDraft.schedulePrimary}
+                      onChange={(event) =>
+                        setGroupTrainingDraft((current) => ({ ...current, schedulePrimary: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Druhý čas
+                    <input
+                      value={groupTrainingDraft.scheduleSecondary}
+                      onChange={(event) =>
+                        setGroupTrainingDraft((current) => ({ ...current, scheduleSecondary: event.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+                <label>
+                  Cena
+                  <input
+                    value={groupTrainingDraft.price}
+                    onChange={(event) => setGroupTrainingDraft((current) => ({ ...current, price: event.target.value }))}
+                  />
+                </label>
+                {groupTrainingMessage ? <p className="admin-message">{groupTrainingMessage}</p> : null}
+                <button
+                  className="button primary"
+                  disabled={isGroupTrainingSaving || isGroupTrainingLoading}
+                  type="submit"
+                >
+                  <Save size={18} /> {isGroupTrainingSaving ? "Ukladám..." : "Uložiť skupinový tréning"}
                 </button>
               </form>
             ) : null}
