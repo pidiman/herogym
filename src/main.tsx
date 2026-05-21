@@ -330,6 +330,22 @@ const defaultAboutSection: AboutSection = {
   ].join("\n\n"),
 };
 
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error("API nevrátilo platnú JSON odpoveď. Skontroluj, či beží API kontajner a proxy pre /api.");
+  }
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.message || fallbackMessage);
+  }
+
+  return data as T;
+}
+
 function Root() {
   const isAdminPage = window.location.pathname.replace(/\/+$/, "") === "/admin";
 
@@ -667,7 +683,9 @@ function AdminPage() {
         Authorization: `Bearer ${token}`,
       },
     })
-      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((response) =>
+        readApiJson<{ username: string; role: AdminRole; id?: number }>(response, "Prihlásenie vypršalo."),
+      )
       .then((data: { username: string; role: AdminRole; id?: number }) => {
         setAdminName(data.username);
         setAdminRole(data.role);
@@ -705,11 +723,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Sekciu sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<TrainingSection>(response, "Sekciu sa nepodarilo načítať.");
 
       setTrainingDraft(data);
     } catch (error) {
@@ -729,11 +743,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Skupinový tréning sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<GroupTrainingSection>(response, "Skupinový tréning sa nepodarilo načítať.");
 
       setGroupTrainingDraft(data);
     } catch (error) {
@@ -753,11 +763,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Cenník sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<PricingSection>(response, "Cenník sa nepodarilo načítať.");
 
       setPricingDraft(data);
     } catch (error) {
@@ -777,11 +783,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Kontakt sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<ContactSection>(response, "Kontakt sa nepodarilo načítať.");
 
       setContactDraft(data);
     } catch (error) {
@@ -801,11 +803,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Sekciu O nás sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<AboutSection>(response, "Sekciu O nás sa nepodarilo načítať.");
 
       setAboutDraft(data);
     } catch (error) {
@@ -825,17 +823,11 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Používateľov sa nepodarilo načítať.");
-      }
+      const data = await readApiJson<AdminUser[]>(response, "Používateľov sa nepodarilo načítať.");
 
       setUsers(data);
       setUserEmails(
-        Object.fromEntries(
-          (data as AdminUser[]).map((user) => [user.id, user.email || ""]),
-        ),
+        Object.fromEntries(data.map((user) => [user.id, user.email || ""])),
       );
     } catch (error) {
       setUsersMessage(error instanceof Error ? error.message : "Používateľov sa nepodarilo načítať.");
@@ -855,11 +847,7 @@ function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resetEmail }),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Žiadosť sa nepodarila.");
-      }
+      await readApiJson<{ ok: boolean }>(response, "Žiadosť sa nepodarila.");
 
       setResetMode("confirm");
       setResetMessage("Kód sme ti poslali na email. Skontroluj si schránku.");
@@ -881,11 +869,7 @@ function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resetEmail, code: resetCode, password: resetPassword }),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Reset sa nepodaril.");
-      }
+      await readApiJson<{ ok: boolean }>(response, "Reset sa nepodaril.");
 
       setResetMode("done");
       setResetMessage("Heslo bolo zmenené. Môžeš sa prihlásiť.");
@@ -925,11 +909,7 @@ function AdminPage() {
           email: newUserEmail,
         }),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Používateľa sa nepodarilo vytvoriť.");
-      }
+      const data = await readApiJson<AdminUser>(response, "Používateľa sa nepodarilo vytvoriť.");
 
       setUsers((current) => [...current, data]);
       setUserEmails((current) => ({ ...current, [data.id]: data.email || "" }));
@@ -958,11 +938,7 @@ function AdminPage() {
         },
         body: JSON.stringify(payload),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Používateľa sa nepodarilo upraviť.");
-      }
+      const data = await readApiJson<AdminUser>(response, "Používateľa sa nepodarilo upraviť.");
 
       setUsers((current) => current.map((user) => (user.id === id ? data : user)));
       setUserEmails((current) => ({ ...current, [id]: data.email || "" }));
@@ -996,11 +972,7 @@ function AdminPage() {
           Authorization: `Bearer ${getToken()}`,
         },
       });
-      const data = response.status === 204 ? { ok: true } : await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Používateľa sa nepodarilo zmazať.");
-      }
+      await readApiJson<{ ok: boolean }>(response, "Používateľa sa nepodarilo zmazať.");
 
       setUsers((current) => current.filter((user) => user.id !== id));
       setUserPasswords((current) => {
@@ -1029,11 +1001,10 @@ function AdminPage() {
         },
         body: JSON.stringify({ username, password }),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Prihlásenie sa nepodarilo.");
-      }
+      const data = await readApiJson<{ token: string; username: string; role: AdminRole; id?: number }>(
+        response,
+        "Prihlásenie sa nepodarilo.",
+      );
 
       localStorage.setItem("herogym_admin_token", data.token);
       setAdminName(data.username);
@@ -1103,11 +1074,7 @@ function AdminPage() {
         },
         body: JSON.stringify(trainingDraft),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Sekciu sa nepodarilo uložiť.");
-      }
+      const data = await readApiJson<TrainingSection>(response, "Sekciu sa nepodarilo uložiť.");
 
       setTrainingDraft(data);
       setTrainingMessage("Sekcia tréningy je uložená.");
@@ -1132,11 +1099,7 @@ function AdminPage() {
         },
         body: JSON.stringify(groupTrainingDraft),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Skupinový tréning sa nepodarilo uložiť.");
-      }
+      const data = await readApiJson<GroupTrainingSection>(response, "Skupinový tréning sa nepodarilo uložiť.");
 
       setGroupTrainingDraft(data);
       setGroupTrainingMessage("Skupinový tréning je uložený.");
@@ -1189,11 +1152,7 @@ function AdminPage() {
         },
         body: JSON.stringify(pricingDraft),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Cenník sa nepodarilo uložiť.");
-      }
+      const data = await readApiJson<PricingSection>(response, "Cenník sa nepodarilo uložiť.");
 
       setPricingDraft(data);
       setPricingMessage("Cenník je uložený.");
@@ -1246,11 +1205,7 @@ function AdminPage() {
         },
         body: JSON.stringify(contactDraft),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Kontakt sa nepodarilo uložiť.");
-      }
+      const data = await readApiJson<ContactSection>(response, "Kontakt sa nepodarilo uložiť.");
 
       setContactDraft(data);
       setContactMessage("Kontakt je uložený.");
@@ -1275,11 +1230,7 @@ function AdminPage() {
         },
         body: JSON.stringify(aboutDraft),
       });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Sekciu O nás sa nepodarilo uložiť.");
-      }
+      const data = await readApiJson<AboutSection>(response, "Sekciu O nás sa nepodarilo uložiť.");
 
       setAboutDraft(data);
       setAboutMessage("Sekcia O nás je uložená.");

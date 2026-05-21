@@ -1088,6 +1088,15 @@ app.post("/api/admin/password-reset/confirm", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.use("/api", (_req, res) => {
+  res.status(404).json({ message: "API endpoint neexistuje." });
+});
+
+app.use((error, _req, res, _next) => {
+  console.error(error);
+  res.status(500).json({ message: "Serverová chyba." });
+});
+
 initDatabase()
   .then(() => {
     app.listen(port, "0.0.0.0", () => {
