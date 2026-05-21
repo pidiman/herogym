@@ -172,9 +172,21 @@ type ContactItem = {
   sortOrder?: number;
 };
 
+type OpeningHour = {
+  id?: number;
+  day: string;
+  hours: string;
+  sortOrder?: number;
+};
+
 type ContactSection = {
   heading: string;
   notice: string;
+  openingHeading: string;
+  receptionSubtitle: string;
+  fitnessSubtitle: string;
+  responsibleText: string;
+  openingHours: OpeningHour[];
   items: ContactItem[];
 };
 
@@ -305,6 +317,17 @@ const defaultPricingSection: PricingSection = {
 const defaultContactSection: ContactSection = {
   heading: "Príď si zacvičiť alebo si rezervuj tréning online.",
   notice: "Prosím, noste si vlastný visiaci zámok na skrinku.",
+  openingHeading: "OTVÁRACIE HODINY",
+  receptionSubtitle: "Recepcia a solárium otvorené",
+  fitnessSubtitle: "Fitnescentrum otvorené NONSTOP",
+  responsibleText: "Zodpovedný vedúci: Meno Priezvisko tel. 0000 000 000",
+  openingHours: [
+    { day: "Pondelok", hours: "8:00 - 20:00" },
+    { day: "Utorok", hours: "8:00 - 20:00" },
+    { day: "Streda", hours: "8:00 - 20:00" },
+    { day: "Štvrtok", hours: "8:00 - 20:00" },
+    { day: "Piatok", hours: "8:00 - 20:00" },
+  ],
   items: [
     { label: "0910 171 222", href: "tel:+421910171222", icon: "phone" },
     {
@@ -594,24 +617,39 @@ function MarketingSite() {
                 );
               })}
             </div>
-            {(() => {
-              const mapItem = contactSection.items.find((item) => item.icon === "map");
-              const mapEmbedUrl = mapItem ? getMapEmbedUrl(mapItem.href) : null;
-              if (!mapEmbedUrl) {
-                return null;
-              }
-              return (
-                <div className="contact-map">
-                  <iframe
-                    src={mapEmbedUrl}
-                    title={mapItem?.label || "Mapa"}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                </div>
-              );
-            })()}
           </div>
+          {(() => {
+            const mapItem = contactSection.items.find((item) => item.icon === "map");
+            const mapEmbedUrl = mapItem ? getMapEmbedUrl(mapItem.href) : null;
+            return (
+              <div className="opening-map-grid">
+                <section className="opening-hours" aria-labelledby="opening-hours-title">
+                  <p className="eyebrow">{contactSection.openingHeading}</p>
+                  <h3 id="opening-hours-title">{contactSection.receptionSubtitle}</h3>
+                  <div className="opening-list">
+                    {contactSection.openingHours.map((item) => (
+                      <div className="opening-row" key={item.id || item.day}>
+                        <span>{item.day}</span>
+                        <strong>{item.hours}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <h3>{contactSection.fitnessSubtitle}</h3>
+                  <p>{contactSection.responsibleText}</p>
+                </section>
+                {mapEmbedUrl ? (
+                  <div className="contact-map">
+                    <iframe
+                      src={mapEmbedUrl}
+                      title={mapItem?.label || "Mapa"}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
         </section>
       </main>
 
@@ -1191,6 +1229,33 @@ function AdminPage() {
     }));
   }
 
+  function updateOpeningHour(index: number, nextItem: OpeningHour) {
+    setContactDraft((current) => ({
+      ...current,
+      openingHours: current.openingHours.map((item, itemIndex) => (itemIndex === index ? nextItem : item)),
+    }));
+  }
+
+  function addOpeningHour() {
+    setContactDraft((current) => ({
+      ...current,
+      openingHours: [
+        ...current.openingHours,
+        {
+          day: "Nový deň",
+          hours: "8:00 - 20:00",
+        },
+      ],
+    }));
+  }
+
+  function removeOpeningHour(index: number) {
+    setContactDraft((current) => ({
+      ...current,
+      openingHours: current.openingHours.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  }
+
   async function saveContactSection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsContactSaving(true);
@@ -1527,6 +1592,74 @@ function AdminPage() {
                   <input
                     value={contactDraft.notice}
                     onChange={(event) => setContactDraft((current) => ({ ...current, notice: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Nadpis otváracích hodín
+                  <input
+                    value={contactDraft.openingHeading}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, openingHeading: event.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  Podnadpis recepcie a solária
+                  <input
+                    value={contactDraft.receptionSubtitle}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, receptionSubtitle: event.target.value }))
+                    }
+                  />
+                </label>
+                <div className="admin-editor-heading">
+                  <h2>Otváracie hodiny</h2>
+                  <button className="button ghost" type="button" onClick={addOpeningHour}>
+                    <Plus size={18} /> Pridať deň
+                  </button>
+                </div>
+                <div className="admin-cards-editor">
+                  {contactDraft.openingHours.map((item, index) => (
+                    <article className="admin-card-editor" key={item.id || index}>
+                      <div className="admin-card-editor-head">
+                        <strong>Deň {index + 1}</strong>
+                        <button type="button" onClick={() => removeOpeningHour(index)} aria-label="Odstrániť deň">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                      <label>
+                        Deň v týždni
+                        <input
+                          value={item.day}
+                          onChange={(event) => updateOpeningHour(index, { ...item, day: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Otváracie hodiny
+                        <input
+                          value={item.hours}
+                          onChange={(event) => updateOpeningHour(index, { ...item, hours: event.target.value })}
+                        />
+                      </label>
+                    </article>
+                  ))}
+                </div>
+                <label>
+                  Podnadpis fitnescentra
+                  <input
+                    value={contactDraft.fitnessSubtitle}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, fitnessSubtitle: event.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  Zodpovedný vedúci
+                  <input
+                    value={contactDraft.responsibleText}
+                    onChange={(event) =>
+                      setContactDraft((current) => ({ ...current, responsibleText: event.target.value }))
+                    }
                   />
                 </label>
                 <div className="admin-editor-heading">

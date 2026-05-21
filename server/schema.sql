@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS contact_section (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   heading TEXT NOT NULL,
   notice TEXT NOT NULL,
+  opening_heading TEXT NOT NULL DEFAULT 'OTVÁRACIE HODINY',
+  reception_subtitle TEXT NOT NULL DEFAULT 'Recepcia a solárium otvorené',
+  fitness_subtitle TEXT NOT NULL DEFAULT 'Fitnescentrum otvorené NONSTOP',
+  responsible_text TEXT NOT NULL DEFAULT 'Zodpovedný vedúci: Meno Priezvisko tel. 0000 000 000',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -86,6 +90,15 @@ CREATE TABLE IF NOT EXISTS about_section (
   eyebrow TEXT NOT NULL,
   heading TEXT NOT NULL,
   body TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS contact_opening_hours (
+  id SERIAL PRIMARY KEY,
+  day TEXT NOT NULL,
+  hours TEXT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

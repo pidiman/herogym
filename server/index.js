@@ -107,6 +107,17 @@ const defaultPricingSection = {
 const defaultContactSection = {
   heading: "Príď si zacvičiť alebo si rezervuj tréning online.",
   notice: "Prosím, noste si vlastný visiaci zámok na skrinku.",
+  openingHeading: "OTVÁRACIE HODINY",
+  receptionSubtitle: "Recepcia a solárium otvorené",
+  fitnessSubtitle: "Fitnescentrum otvorené NONSTOP",
+  responsibleText: "Zodpovedný vedúci: Meno Priezvisko tel. 0000 000 000",
+  openingHours: [
+    { day: "Pondelok", hours: "8:00 - 20:00", sort_order: 0 },
+    { day: "Utorok", hours: "8:00 - 20:00", sort_order: 1 },
+    { day: "Streda", hours: "8:00 - 20:00", sort_order: 2 },
+    { day: "Štvrtok", hours: "8:00 - 20:00", sort_order: 3 },
+    { day: "Piatok", hours: "8:00 - 20:00", sort_order: 4 },
+  ],
   items: [
     { label: "0910 171 222", href: "tel:+421910171222", icon: "phone", sort_order: 0 },
     {
@@ -251,8 +262,29 @@ async function initDatabase() {
       id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
       heading TEXT NOT NULL,
       notice TEXT NOT NULL,
+      opening_heading TEXT NOT NULL DEFAULT 'OTVÁRACIE HODINY',
+      reception_subtitle TEXT NOT NULL DEFAULT 'Recepcia a solárium otvorené',
+      fitness_subtitle TEXT NOT NULL DEFAULT 'Fitnescentrum otvorené NONSTOP',
+      responsible_text TEXT NOT NULL DEFAULT 'Zodpovedný vedúci: Meno Priezvisko tel. 0000 000 000',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE contact_section
+    ADD COLUMN IF NOT EXISTS opening_heading TEXT NOT NULL DEFAULT 'OTVÁRACIE HODINY'
+  `);
+  await pool.query(`
+    ALTER TABLE contact_section
+    ADD COLUMN IF NOT EXISTS reception_subtitle TEXT NOT NULL DEFAULT 'Recepcia a solárium otvorené'
+  `);
+  await pool.query(`
+    ALTER TABLE contact_section
+    ADD COLUMN IF NOT EXISTS fitness_subtitle TEXT NOT NULL DEFAULT 'Fitnescentrum otvorené NONSTOP'
+  `);
+  await pool.query(`
+    ALTER TABLE contact_section
+    ADD COLUMN IF NOT EXISTS responsible_text TEXT NOT NULL DEFAULT 'Zodpovedný vedúci: Meno Priezvisko tel. 0000 000 000'
   `);
 
   await pool.query(`
@@ -261,6 +293,17 @@ async function initDatabase() {
       label TEXT NOT NULL,
       href TEXT NOT NULL,
       icon TEXT NOT NULL DEFAULT 'phone',
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS contact_opening_hours (
+      id SERIAL PRIMARY KEY,
+      day TEXT NOT NULL,
+      hours TEXT NOT NULL,
       sort_order INT NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -343,10 +386,17 @@ async function initDatabase() {
 
   const contactSection = await pool.query("SELECT id FROM contact_section WHERE id = 1");
   if (contactSection.rowCount === 0) {
-    await pool.query("INSERT INTO contact_section (id, heading, notice) VALUES (1, $1, $2)", [
-      defaultContactSection.heading,
-      defaultContactSection.notice,
-    ]);
+    await pool.query(
+      "INSERT INTO contact_section (id, heading, notice, opening_heading, reception_subtitle, fitness_subtitle, responsible_text) VALUES (1, $1, $2, $3, $4, $5, $6)",
+      [
+        defaultContactSection.heading,
+        defaultContactSection.notice,
+        defaultContactSection.openingHeading,
+        defaultContactSection.receptionSubtitle,
+        defaultContactSection.fitnessSubtitle,
+        defaultContactSection.responsibleText,
+      ],
+    );
   }
 
   const contactItems = await pool.query("SELECT id FROM contact_items LIMIT 1");
@@ -356,6 +406,17 @@ async function initDatabase() {
         item.label,
         item.href,
         item.icon,
+        item.sort_order,
+      ]);
+    }
+  }
+
+  const contactOpeningHours = await pool.query("SELECT id FROM contact_opening_hours LIMIT 1");
+  if (contactOpeningHours.rowCount === 0) {
+    for (const item of defaultContactSection.openingHours) {
+      await pool.query("INSERT INTO contact_opening_hours (day, hours, sort_order) VALUES ($1, $2, $3)", [
+        item.day,
+        item.hours,
         item.sort_order,
       ]);
     }
@@ -482,15 +543,30 @@ app.get("/api/pricing-section", async (_req, res) => {
 });
 
 async function getContactSection() {
-  const sectionResult = await pool.query("SELECT heading, notice FROM contact_section WHERE id = 1");
+  const sectionResult = await pool.query(
+    "SELECT heading, notice, opening_heading, reception_subtitle, fitness_subtitle, responsible_text FROM contact_section WHERE id = 1",
+  );
   const itemsResult = await pool.query(
     "SELECT id, label, href, icon, sort_order FROM contact_items ORDER BY sort_order ASC, id ASC",
+  );
+  const openingHoursResult = await pool.query(
+    "SELECT id, day, hours, sort_order FROM contact_opening_hours ORDER BY sort_order ASC, id ASC",
   );
   const section = sectionResult.rows[0] || defaultContactSection;
 
   return {
     heading: section.heading,
     notice: section.notice,
+    openingHeading: section.opening_heading || defaultContactSection.openingHeading,
+    receptionSubtitle: section.reception_subtitle || defaultContactSection.receptionSubtitle,
+    fitnessSubtitle: section.fitness_subtitle || defaultContactSection.fitnessSubtitle,
+    responsibleText: section.responsible_text || defaultContactSection.responsibleText,
+    openingHours: openingHoursResult.rows.map((item) => ({
+      id: item.id,
+      day: item.day,
+      hours: item.hours,
+      sortOrder: item.sort_order,
+    })),
     items: itemsResult.rows.map((item) => ({
       id: item.id,
       label: item.label,
@@ -895,14 +971,23 @@ app.get("/api/admin/contact-section", authenticate, async (_req, res) => {
 app.put("/api/admin/contact-section", authenticate, async (req, res) => {
   const heading = String(req.body?.heading || "").trim();
   const notice = String(req.body?.notice || "").trim();
+  const openingHeading = String(req.body?.openingHeading || "").trim();
+  const receptionSubtitle = String(req.body?.receptionSubtitle || "").trim();
+  const fitnessSubtitle = String(req.body?.fitnessSubtitle || "").trim();
+  const responsibleText = String(req.body?.responsibleText || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const openingHours = Array.isArray(req.body?.openingHours) ? req.body.openingHours : [];
 
-  if (!heading || !notice) {
-    return res.status(400).json({ message: "Hlavný text a poznámka sú povinné." });
+  if (!heading || !notice || !openingHeading || !receptionSubtitle || !fitnessSubtitle || !responsibleText) {
+    return res.status(400).json({ message: "Hlavný text, poznámka a otváracie hodiny sú povinné." });
   }
 
   if (items.length === 0) {
     return res.status(400).json({ message: "Pridaj aspoň jednu kontaktnú bunku." });
+  }
+
+  if (openingHours.length === 0) {
+    return res.status(400).json({ message: "Pridaj aspoň jeden deň do otváracích hodín." });
   }
 
   const normalizedItems = items.map((item, index) => ({
@@ -917,12 +1002,23 @@ app.put("/api/admin/contact-section", authenticate, async (req, res) => {
     return res.status(400).json({ message: "Každá bunka musí mať text a odkaz." });
   }
 
+  const normalizedOpeningHours = openingHours.map((item, index) => ({
+    id: Number.isInteger(item.id) && item.id > 0 ? item.id : null,
+    day: String(item.day || "").trim(),
+    hours: String(item.hours || "").trim(),
+    sortOrder: Number.isInteger(item.sortOrder) ? item.sortOrder : index,
+  }));
+
+  if (normalizedOpeningHours.some((item) => !item.day || !item.hours)) {
+    return res.status(400).json({ message: "Každý deň musí mať názov a otváracie hodiny." });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query(
-      "INSERT INTO contact_section (id, heading, notice) VALUES (1, $1, $2) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, notice = EXCLUDED.notice, updated_at = NOW()",
-      [heading, notice],
+      "INSERT INTO contact_section (id, heading, notice, opening_heading, reception_subtitle, fitness_subtitle, responsible_text) VALUES (1, $1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, notice = EXCLUDED.notice, opening_heading = EXCLUDED.opening_heading, reception_subtitle = EXCLUDED.reception_subtitle, fitness_subtitle = EXCLUDED.fitness_subtitle, responsible_text = EXCLUDED.responsible_text, updated_at = NOW()",
+      [heading, notice, openingHeading, receptionSubtitle, fitnessSubtitle, responsibleText],
     );
 
     const keptIds = [];
@@ -946,6 +1042,28 @@ app.put("/api/admin/contact-section", authenticate, async (req, res) => {
     }
 
     await client.query("DELETE FROM contact_items WHERE NOT (id = ANY($1::int[]))", [keptIds]);
+
+    const keptOpeningHourIds = [];
+    for (const [index, item] of normalizedOpeningHours.entries()) {
+      if (item.id) {
+        const result = await client.query(
+          "UPDATE contact_opening_hours SET day = $1, hours = $2, sort_order = $3, updated_at = NOW() WHERE id = $4 RETURNING id",
+          [item.day, item.hours, index, item.id],
+        );
+        if (result.rows[0]) {
+          keptOpeningHourIds.push(result.rows[0].id);
+          continue;
+        }
+      }
+
+      const result = await client.query(
+        "INSERT INTO contact_opening_hours (day, hours, sort_order) VALUES ($1, $2, $3) RETURNING id",
+        [item.day, item.hours, index],
+      );
+      keptOpeningHourIds.push(result.rows[0].id);
+    }
+
+    await client.query("DELETE FROM contact_opening_hours WHERE NOT (id = ANY($1::int[]))", [keptOpeningHourIds]);
     await client.query("COMMIT");
     res.json(await getContactSection());
   } catch (error) {
