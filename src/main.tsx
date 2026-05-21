@@ -137,6 +137,7 @@ type PricingItem = {
 
 type PricingSection = {
   heading: string;
+  validFromText: string;
   items: PricingItem[];
 };
 
@@ -290,6 +291,7 @@ const defaultGroupTrainingSection: GroupTrainingSection = {
 
 const defaultPricingSection: PricingSection = {
   heading: "Jasné vstupy bez hľadania v tabuľkách.",
+  validFromText: "Cenník platný od dátum",
   items: [
     { label: "Jednorazový vstup", value: "7€", detail: "Fitnes" },
     { label: "10 vstupov", value: "45€", detail: "Vstupová karta" },
@@ -510,6 +512,7 @@ function MarketingSite() {
               </article>
             ))}
           </div>
+          <p className="price-validity">{pricingSection.validFromText}</p>
         </section>
 
         <section className="section gallery-section" id="galeria">
@@ -1502,6 +1505,15 @@ function AdminPage() {
                   <input
                     value={pricingDraft.heading}
                     onChange={(event) => setPricingDraft((current) => ({ ...current, heading: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Platnosť cenníka
+                  <input
+                    value={pricingDraft.validFromText}
+                    onChange={(event) =>
+                      setPricingDraft((current) => ({ ...current, validFromText: event.target.value }))
+                    }
                   />
                 </label>
                 <div className="admin-editor-heading">

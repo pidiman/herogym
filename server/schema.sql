@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS group_training_section (
 CREATE TABLE IF NOT EXISTS pricing_section (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   heading TEXT NOT NULL,
+  valid_from_text TEXT NOT NULL DEFAULT 'Cenník platný od dátum',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

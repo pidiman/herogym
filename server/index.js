@@ -93,6 +93,7 @@ const defaultGroupTrainingSection = {
 
 const defaultPricingSection = {
   heading: "Jasné vstupy bez hľadania v tabuľkách.",
+  validFromText: "Cenník platný od dátum",
   items: [
     { label: "Jednorazový vstup", value: "7€", detail: "Fitnes", sort_order: 0 },
     { label: "10 vstupov", value: "45€", detail: "Vstupová karta", sort_order: 1 },
@@ -223,8 +224,14 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS pricing_section (
       id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
       heading TEXT NOT NULL,
+      valid_from_text TEXT NOT NULL DEFAULT 'Cenník platný od dátum',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE pricing_section
+    ADD COLUMN IF NOT EXISTS valid_from_text TEXT NOT NULL DEFAULT 'Cenník platný od dátum'
   `);
 
   await pool.query(`
@@ -316,7 +323,10 @@ async function initDatabase() {
 
   const pricingSection = await pool.query("SELECT id FROM pricing_section WHERE id = 1");
   if (pricingSection.rowCount === 0) {
-    await pool.query("INSERT INTO pricing_section (id, heading) VALUES (1, $1)", [defaultPricingSection.heading]);
+    await pool.query("INSERT INTO pricing_section (id, heading, valid_from_text) VALUES (1, $1, $2)", [
+      defaultPricingSection.heading,
+      defaultPricingSection.validFromText,
+    ]);
   }
 
   const pricingItems = await pool.query("SELECT id FROM pricing_items LIMIT 1");
@@ -448,7 +458,7 @@ app.get("/api/group-training-section", async (_req, res) => {
 });
 
 async function getPricingSection() {
-  const sectionResult = await pool.query("SELECT heading FROM pricing_section WHERE id = 1");
+  const sectionResult = await pool.query("SELECT heading, valid_from_text FROM pricing_section WHERE id = 1");
   const itemsResult = await pool.query(
     "SELECT id, label, value, detail, sort_order FROM pricing_items ORDER BY sort_order ASC, id ASC",
   );
@@ -456,6 +466,7 @@ async function getPricingSection() {
 
   return {
     heading: section.heading,
+    validFromText: section.valid_from_text || defaultPricingSection.validFromText,
     items: itemsResult.rows.map((item) => ({
       id: item.id,
       label: item.label,
@@ -814,10 +825,11 @@ app.get("/api/admin/pricing-section", authenticate, async (_req, res) => {
 
 app.put("/api/admin/pricing-section", authenticate, async (req, res) => {
   const heading = String(req.body?.heading || "").trim();
+  const validFromText = String(req.body?.validFromText || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
 
-  if (!heading) {
-    return res.status(400).json({ message: "Hlavný text je povinný." });
+  if (!heading || !validFromText) {
+    return res.status(400).json({ message: "Hlavný text a platnosť cenníka sú povinné." });
   }
 
   if (items.length === 0) {
@@ -840,8 +852,8 @@ app.put("/api/admin/pricing-section", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
     await client.query(
-      "INSERT INTO pricing_section (id, heading) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, updated_at = NOW()",
-      [heading],
+      "INSERT INTO pricing_section (id, heading, valid_from_text) VALUES (1, $1, $2) ON CONFLICT (id) DO UPDATE SET heading = EXCLUDED.heading, valid_from_text = EXCLUDED.valid_from_text, updated_at = NOW()",
+      [heading, validFromText],
     );
 
     const keptIds = [];
