@@ -27,6 +27,15 @@ if (!adminUser || !adminPassword) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: 5,
+});
+
+pool.on("error", (err) => {
+  console.error("pg pool error (idle client):", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
 });
 
 const smtpAuthEnabled = String(process.env.SMTP_AUTH || "false").toLowerCase() === "true";
@@ -49,6 +58,21 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const app = express();
 app.use(express.json());
+
+const asyncRoute = (handler) => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
+
+for (const method of ["get", "post", "put", "delete", "patch"]) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    original(
+      path,
+      ...handlers.map((h) =>
+        typeof h === "function" && h.constructor && h.constructor.name === "AsyncFunction" ? asyncRoute(h) : h,
+      ),
+    );
+}
 
 const defaultTrainingSection = {
   heading: "Vyber si tréning, ktorý sedí tvojmu rytmu.",
