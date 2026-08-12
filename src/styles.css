@@ -602,6 +602,20 @@ footer {
 	background: #090a0d;
 }
 
+footer .footer-admin-link {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	margin-left: 0.5rem;
+	color: var(--muted);
+	vertical-align: middle;
+	transition: color 0.2s ease;
+}
+
+footer .footer-admin-link:hover {
+	color: var(--text);
+}
+
 .admin-page {
 	position: relative;
 	display: grid;
@@ -735,8 +749,32 @@ footer {
 	gap: 1rem;
 }
 
-.admin-toolbar .button {
+.admin-toolbar-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
 	flex: 0 0 auto;
+}
+
+.admin-toolbar-actions a,
+.admin-toolbar-actions button {
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--line);
+	color: var(--text);
+	background: rgba(255, 255, 255, 0.05);
+	cursor: pointer;
+	font: inherit;
+	font-size: clamp(1.2rem, 3vw, 1.7rem);
+	font-weight: 950;
+	text-decoration: none;
+	padding: 1rem;
+}
+
+.admin-toolbar-actions a:hover,
+.admin-toolbar-actions button:hover {
+	border-color: rgba(64, 143, 244, 0.82);
+	background: rgba(64, 143, 244, 0.14);
 }
 
 .admin-editor-form {

@@ -774,7 +774,12 @@ function MarketingSite() {
 			</main>
 
 			<footer>
-				<span>HERO GYM STUPAVA</span>
+				<span>
+					HERO GYM STUPAVA
+					<a href="/admin" aria-label="Admin" className="footer-admin-link">
+						<LockKeyhole size={14} />
+					</a>
+				</span>
 				<span>Obsah a fotografie spracované z herogymstupava.sk</span>
 			</footer>
 		</>
@@ -1598,9 +1603,12 @@ function AdminPage() {
 								<h1 id="admin-title">Obsah</h1>
 								<p>Vitaj, {adminName}. Vyber sekciu, ktorú chceš upraviť.</p>
 							</div>
-							<button className="button ghost" type="button" onClick={logout}>
-								Odhlásiť
-							</button>
+							<div className="admin-toolbar-actions">
+								<a href="/">Domov</a>
+								<button type="button" onClick={logout}>
+									Odhlásiť
+								</button>
+							</div>
 						</div>
 						<div className="admin-section-menu">
 							<button
