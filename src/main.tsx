@@ -243,6 +243,10 @@ type AboutSection = {
 	body: string;
 };
 
+type IclubSection = {
+	url: string;
+};
+
 type AdminRole = "admin" | "moderator";
 
 type AdminUser = {
@@ -411,6 +415,10 @@ const defaultAboutSection: AboutSection = {
 	].join("\n\n"),
 };
 
+const defaultIclubSection: IclubSection = {
+	url: "",
+};
+
 async function readApiJson<T>(
 	response: Response,
 	fallbackMessage: string,
@@ -475,6 +483,8 @@ function MarketingSite() {
 	);
 	const [aboutSection, setAboutSection] =
 		useState<AboutSection>(defaultAboutSection);
+	const [iclubSection, setIclubSection] =
+		useState<IclubSection>(defaultIclubSection);
 	const tags = useMemo(
 		() => ["Všetko", ...Array.from(new Set(gallery.map((item) => item.tag)))],
 		[],
@@ -517,6 +527,13 @@ function MarketingSite() {
 			.then((response) => (response.ok ? response.json() : Promise.reject()))
 			.then((data: AboutSection) => setAboutSection(data))
 			.catch(() => setAboutSection(defaultAboutSection));
+	}, []);
+
+	useEffect(() => {
+		fetch("/api/iclub-section")
+			.then((response) => (response.ok ? response.json() : Promise.reject()))
+			.then((data: IclubSection) => setIclubSection(data))
+			.catch(() => setIclubSection(defaultIclubSection));
 	}, []);
 
 	return (
@@ -773,6 +790,18 @@ function MarketingSite() {
 				</section>
 			</main>
 
+			<section className="iclub-band">
+				<a
+					className="iclub-link"
+					href={iclubSection.url || undefined}
+					target={iclubSection.url ? "_blank" : undefined}
+					rel={iclubSection.url ? "noreferrer" : undefined}
+				>
+					<img src="/assets/brand/iclub.jpg" alt="iClub" />
+					<span>Stiahni si appku iClub</span>
+				</a>
+			</section>
+
 			<footer>
 				<span>
 					HERO GYM STUPAVA
@@ -806,6 +835,8 @@ function AdminPage() {
 	);
 	const [aboutDraft, setAboutDraft] =
 		useState<AboutSection>(defaultAboutSection);
+	const [iclubDraft, setIclubDraft] =
+		useState<IclubSection>(defaultIclubSection);
 	const [users, setUsers] = useState<AdminUser[]>([]);
 	const [newUserName, setNewUserName] = useState("");
 	const [newUserEmail, setNewUserEmail] = useState("");
@@ -831,6 +862,7 @@ function AdminPage() {
 		| "pricing"
 		| "contact"
 		| "about"
+		| "iclub"
 		| "users"
 		| null
 	>(null);
@@ -839,6 +871,7 @@ function AdminPage() {
 	const [pricingMessage, setPricingMessage] = useState("");
 	const [contactMessage, setContactMessage] = useState("");
 	const [aboutMessage, setAboutMessage] = useState("");
+	const [iclubMessage, setIclubMessage] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [isTrainingLoading, setIsTrainingLoading] = useState(false);
 	const [isTrainingSaving, setIsTrainingSaving] = useState(false);
@@ -850,6 +883,8 @@ function AdminPage() {
 	const [isContactSaving, setIsContactSaving] = useState(false);
 	const [isAboutLoading, setIsAboutLoading] = useState(false);
 	const [isAboutSaving, setIsAboutSaving] = useState(false);
+	const [isIclubLoading, setIsIclubLoading] = useState(false);
+	const [isIclubSaving, setIsIclubSaving] = useState(false);
 
 	useEffect(() => {
 		const token = localStorage.getItem("herogym_admin_token");
@@ -1018,6 +1053,33 @@ function AdminPage() {
 		}
 	}, [getToken]);
 
+	const loadIclubSection = useCallback(async () => {
+		setIsIclubLoading(true);
+		setIclubMessage("");
+
+		try {
+			const response = await fetch("/api/admin/iclub-section", {
+				headers: {
+					Authorization: `Bearer ${getToken()}`,
+				},
+			});
+			const data = await readApiJson<IclubSection>(
+				response,
+				"Sekciu iClub sa nepodarilo načítať.",
+			);
+
+			setIclubDraft(data);
+		} catch (error) {
+			setIclubMessage(
+				error instanceof Error
+					? error.message
+					: "Sekciu iClub sa nepodarilo načítať.",
+			);
+		} finally {
+			setIsIclubLoading(false);
+		}
+	}, [getToken]);
+
 	const loadUsers = useCallback(async () => {
 		setIsUsersLoading(true);
 		setUsersMessage("");
@@ -1055,6 +1117,7 @@ function AdminPage() {
 			void loadPricingSection();
 			void loadContactSection();
 			void loadAboutSection();
+			void loadIclubSection();
 			if (adminRole === "admin") {
 				void loadUsers();
 			}
@@ -1068,6 +1131,7 @@ function AdminPage() {
 		loadContactSection,
 		loadGroupTrainingSection,
 		loadAboutSection,
+		loadIclubSection,
 	]);
 
 	async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
@@ -1581,6 +1645,38 @@ function AdminPage() {
 		}
 	}
 
+	async function saveIclubSection(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setIsIclubSaving(true);
+		setIclubMessage("");
+
+		try {
+			const response = await fetch("/api/admin/iclub-section", {
+				method: "PUT",
+				headers: {
+					Authorization: `Bearer ${getToken()}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(iclubDraft),
+			});
+			const data = await readApiJson<IclubSection>(
+				response,
+				"Sekciu iClub sa nepodarilo uložiť.",
+			);
+
+			setIclubDraft(data);
+			setIclubMessage("Sekcia iClub je uložená.");
+		} catch (error) {
+			setIclubMessage(
+				error instanceof Error
+					? error.message
+					: "Sekciu iClub sa nepodarilo uložiť.",
+			);
+		} finally {
+			setIsIclubSaving(false);
+		}
+	}
+
 	return (
 		<main className="admin-page">
 			<div className="admin-bg" aria-hidden="true">
@@ -1667,6 +1763,17 @@ function AdminPage() {
 								}
 							>
 								O nás
+							</button>
+							<button
+								className={activeAdminSection === "iclub" ? "is-active" : ""}
+								type="button"
+								onClick={() =>
+									setActiveAdminSection((current) =>
+										current === "iclub" ? null : "iclub",
+									)
+								}
+							>
+								iClub
 							</button>
 							{adminRole === "admin" ? (
 								<button
@@ -2264,6 +2371,35 @@ function AdminPage() {
 								>
 									<Save size={18} />{" "}
 									{isAboutSaving ? "Ukladám..." : "Uložiť O nás"}
+								</button>
+							</form>
+						) : null}
+
+						{activeAdminSection === "iclub" ? (
+							<form className="admin-editor-form" onSubmit={saveIclubSection}>
+								<label>
+									URL adresa appky iClub
+									<input
+										value={iclubDraft.url}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												url: event.target.value,
+											}))
+										}
+										placeholder="https://..."
+									/>
+								</label>
+								{iclubMessage ? (
+									<p className="admin-message">{iclubMessage}</p>
+								) : null}
+								<button
+									className="button primary"
+									disabled={isIclubSaving || isIclubLoading}
+									type="submit"
+								>
+									<Save size={18} />{" "}
+									{isIclubSaving ? "Ukladám..." : "Uložiť iClub"}
 								</button>
 							</form>
 						) : null}

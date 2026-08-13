@@ -217,6 +217,10 @@ const defaultAboutSection = {
 	].join("\n\n"),
 };
 
+const defaultIclubSection = {
+	url: "",
+};
+
 async function initDatabase() {
 	await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_users (
@@ -399,6 +403,14 @@ async function initDatabase() {
     )
   `);
 
+	await pool.query(`
+    CREATE TABLE IF NOT EXISTS iclub_section (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      url TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
 	const existing = await pool.query(
 		"SELECT id FROM admin_users WHERE username = $1",
 		[adminUser],
@@ -524,6 +536,15 @@ async function initDatabase() {
 				defaultAboutSection.body,
 			],
 		);
+	}
+
+	const iclubSection = await pool.query(
+		"SELECT id FROM iclub_section WHERE id = 1",
+	);
+	if (iclubSection.rowCount === 0) {
+		await pool.query("INSERT INTO iclub_section (id, url) VALUES (1, $1)", [
+			defaultIclubSection.url,
+		]);
 	}
 }
 
@@ -709,6 +730,23 @@ async function getAboutSection() {
 
 app.get("/api/about-section", async (_req, res) => {
 	res.json(await getAboutSection());
+});
+
+async function getIclubSection() {
+	const result = await pool.query("SELECT url FROM iclub_section WHERE id = 1");
+	const section = result.rows[0];
+
+	if (!section) {
+		return defaultIclubSection;
+	}
+
+	return {
+		url: section.url,
+	};
+}
+
+app.get("/api/iclub-section", async (_req, res) => {
+	res.json(await getIclubSection());
 });
 
 app.post("/api/admin/login", async (req, res) => {
@@ -1330,6 +1368,27 @@ app.put("/api/admin/about-section", authenticate, async (req, res) => {
 	);
 
 	res.json(await getAboutSection());
+});
+
+app.get("/api/admin/iclub-section", authenticate, async (_req, res) => {
+	res.json(await getIclubSection());
+});
+
+app.put("/api/admin/iclub-section", authenticate, async (req, res) => {
+	const url = String(req.body?.url || "").trim();
+
+	if (url && !/^https?:\/\//i.test(url)) {
+		return res
+			.status(400)
+			.json({ message: "URL musí začínať http:// alebo https://." });
+	}
+
+	await pool.query(
+		"INSERT INTO iclub_section (id, url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url, updated_at = NOW()",
+		[url],
+	);
+
+	res.json(await getIclubSection());
 });
 
 app.post("/api/admin/password-reset/request", async (req, res) => {
