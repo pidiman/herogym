@@ -219,6 +219,9 @@ const defaultAboutSection = {
 
 const defaultIclubSection = {
 	url: "",
+	text: "Stiahni si appku iClub",
+	appStoreUrl: "",
+	googlePlayUrl: "",
 };
 
 async function initDatabase() {
@@ -407,8 +410,23 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS iclub_section (
       id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
       url TEXT NOT NULL DEFAULT '',
+      text TEXT NOT NULL DEFAULT 'Stiahni si appku iClub',
+      app_store_url TEXT NOT NULL DEFAULT '',
+      google_play_url TEXT NOT NULL DEFAULT '',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+	await pool.query(`
+    ALTER TABLE iclub_section
+    ADD COLUMN IF NOT EXISTS text TEXT NOT NULL DEFAULT 'Stiahni si appku iClub'
+  `);
+	await pool.query(`
+    ALTER TABLE iclub_section
+    ADD COLUMN IF NOT EXISTS app_store_url TEXT NOT NULL DEFAULT ''
+  `);
+	await pool.query(`
+    ALTER TABLE iclub_section
+    ADD COLUMN IF NOT EXISTS google_play_url TEXT NOT NULL DEFAULT ''
   `);
 
 	const existing = await pool.query(
@@ -542,9 +560,15 @@ async function initDatabase() {
 		"SELECT id FROM iclub_section WHERE id = 1",
 	);
 	if (iclubSection.rowCount === 0) {
-		await pool.query("INSERT INTO iclub_section (id, url) VALUES (1, $1)", [
-			defaultIclubSection.url,
-		]);
+		await pool.query(
+			"INSERT INTO iclub_section (id, url, text, app_store_url, google_play_url) VALUES (1, $1, $2, $3, $4)",
+			[
+				defaultIclubSection.url,
+				defaultIclubSection.text,
+				defaultIclubSection.appStoreUrl,
+				defaultIclubSection.googlePlayUrl,
+			],
+		);
 	}
 }
 
@@ -733,7 +757,9 @@ app.get("/api/about-section", async (_req, res) => {
 });
 
 async function getIclubSection() {
-	const result = await pool.query("SELECT url FROM iclub_section WHERE id = 1");
+	const result = await pool.query(
+		"SELECT url, text, app_store_url, google_play_url FROM iclub_section WHERE id = 1",
+	);
 	const section = result.rows[0];
 
 	if (!section) {
@@ -742,6 +768,9 @@ async function getIclubSection() {
 
 	return {
 		url: section.url,
+		text: section.text,
+		appStoreUrl: section.app_store_url,
+		googlePlayUrl: section.google_play_url,
 	};
 }
 
@@ -1376,6 +1405,9 @@ app.get("/api/admin/iclub-section", authenticate, async (_req, res) => {
 
 app.put("/api/admin/iclub-section", authenticate, async (req, res) => {
 	const url = String(req.body?.url || "").trim();
+	const text = String(req.body?.text || "").trim();
+	const appStoreUrl = String(req.body?.appStoreUrl || "").trim();
+	const googlePlayUrl = String(req.body?.googlePlayUrl || "").trim();
 
 	if (url && !/^https?:\/\//i.test(url)) {
 		return res
@@ -1383,9 +1415,25 @@ app.put("/api/admin/iclub-section", authenticate, async (req, res) => {
 			.json({ message: "URL musí začínať http:// alebo https://." });
 	}
 
+	if (!text) {
+		return res.status(400).json({ message: "Text je povinný." });
+	}
+
+	if (appStoreUrl && !/^https?:\/\//i.test(appStoreUrl)) {
+		return res
+			.status(400)
+			.json({ message: "URL App Store musí začínať http:// alebo https://." });
+	}
+
+	if (googlePlayUrl && !/^https?:\/\//i.test(googlePlayUrl)) {
+		return res.status(400).json({
+			message: "URL Google Play musí začínať http:// alebo https://.",
+		});
+	}
+
 	await pool.query(
-		"INSERT INTO iclub_section (id, url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url, updated_at = NOW()",
-		[url],
+		"INSERT INTO iclub_section (id, url, text, app_store_url, google_play_url) VALUES (1, $1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url, text = EXCLUDED.text, app_store_url = EXCLUDED.app_store_url, google_play_url = EXCLUDED.google_play_url, updated_at = NOW()",
+		[url, text, appStoreUrl, googlePlayUrl],
 	);
 
 	res.json(await getIclubSection());

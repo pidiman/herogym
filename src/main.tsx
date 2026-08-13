@@ -245,6 +245,9 @@ type AboutSection = {
 
 type IclubSection = {
 	url: string;
+	text: string;
+	appStoreUrl: string;
+	googlePlayUrl: string;
 };
 
 type AdminRole = "admin" | "moderator";
@@ -417,6 +420,9 @@ const defaultAboutSection: AboutSection = {
 
 const defaultIclubSection: IclubSection = {
 	url: "",
+	text: "Stiahni si appku iClub",
+	appStoreUrl: "",
+	googlePlayUrl: "",
 };
 
 async function readApiJson<T>(
@@ -798,8 +804,38 @@ function MarketingSite() {
 					rel={iclubSection.url ? "noreferrer" : undefined}
 				>
 					<img src="/assets/brand/iclub.jpg" alt="iClub" />
-					<span>Stiahni si appku iClub</span>
+					<span>{iclubSection.text}</span>
 				</a>
+				{iclubSection.appStoreUrl || iclubSection.googlePlayUrl ? (
+					<div className="iclub-store-links">
+						{iclubSection.appStoreUrl ? (
+							<a
+								className="iclub-store-link"
+								href={iclubSection.appStoreUrl}
+								target="_blank"
+								rel="noreferrer"
+							>
+								<img
+									src="/assets/brand/app-store-badge.svg"
+									alt="Stiahnuť z App Store"
+								/>
+							</a>
+						) : null}
+						{iclubSection.googlePlayUrl ? (
+							<a
+								className="iclub-store-link"
+								href={iclubSection.googlePlayUrl}
+								target="_blank"
+								rel="noreferrer"
+							>
+								<img
+									src="/assets/brand/google-play-badge.svg"
+									alt="Stiahnuť z Google Play"
+								/>
+							</a>
+						) : null}
+					</div>
+				) : null}
 			</section>
 
 			<footer>
@@ -2388,6 +2424,44 @@ function AdminPage() {
 											}))
 										}
 										placeholder="https://..."
+									/>
+								</label>
+								<label>
+									Text odkazu
+									<input
+										value={iclubDraft.text}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												text: event.target.value,
+											}))
+										}
+									/>
+								</label>
+								<label>
+									URL adresa v App Store
+									<input
+										value={iclubDraft.appStoreUrl}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												appStoreUrl: event.target.value,
+											}))
+										}
+										placeholder="https://apps.apple.com/..."
+									/>
+								</label>
+								<label>
+									URL adresa v Google Play
+									<input
+										value={iclubDraft.googlePlayUrl}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												googlePlayUrl: event.target.value,
+											}))
+										}
+										placeholder="https://play.google.com/..."
 									/>
 								</label>
 								{iclubMessage ? (

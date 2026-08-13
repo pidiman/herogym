@@ -593,7 +593,10 @@ h3 {
 
 .iclub-band {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: center;
+	align-items: center;
+	gap: 1rem;
 	padding: 2rem clamp(1rem, 4vw, 3rem);
 	border-top: 1px solid var(--line);
 }
@@ -620,6 +623,28 @@ h3 {
 	width: 2rem;
 	height: 2rem;
 	border-radius: 0.5rem;
+}
+
+.iclub-store-links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.iclub-store-link {
+	display: inline-flex;
+	align-items: center;
+	transition: opacity 0.2s ease;
+}
+
+.iclub-store-link img {
+	height: 2.6rem;
+	width: auto;
+}
+
+.iclub-store-link:hover {
+	opacity: 0.8;
 }
 
 footer {

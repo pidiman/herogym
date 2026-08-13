@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS about_section (
 CREATE TABLE IF NOT EXISTS iclub_section (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   url TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT 'Stiahni si appku iClub',
+  app_store_url TEXT NOT NULL DEFAULT '',
+  google_play_url TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
