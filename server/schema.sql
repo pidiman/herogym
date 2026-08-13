@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS iclub_section (
   text TEXT NOT NULL DEFAULT 'Stiahni si appku iClub',
   app_store_url TEXT NOT NULL DEFAULT '',
   google_play_url TEXT NOT NULL DEFAULT '',
+  guide_heading TEXT NOT NULL DEFAULT 'Návod pre používateľov',
+  guide_text TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

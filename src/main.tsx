@@ -248,6 +248,8 @@ type IclubSection = {
 	text: string;
 	appStoreUrl: string;
 	googlePlayUrl: string;
+	guideHeading: string;
+	guideText: string;
 };
 
 type AdminRole = "admin" | "moderator";
@@ -423,6 +425,8 @@ const defaultIclubSection: IclubSection = {
 	text: "Stiahni si appku iClub",
 	appStoreUrl: "",
 	googlePlayUrl: "",
+	guideHeading: "Návod pre používateľov",
+	guideText: "",
 };
 
 async function readApiJson<T>(
@@ -797,43 +801,61 @@ function MarketingSite() {
 			</main>
 
 			<section className="iclub-band">
-				<a
-					className="iclub-link"
-					href={iclubSection.url || undefined}
-					target={iclubSection.url ? "_blank" : undefined}
-					rel={iclubSection.url ? "noreferrer" : undefined}
-				>
-					<img src="/assets/brand/iclub.jpg" alt="iClub" />
-					<span>{iclubSection.text}</span>
-				</a>
-				{iclubSection.appStoreUrl || iclubSection.googlePlayUrl ? (
-					<div className="iclub-store-links">
-						{iclubSection.appStoreUrl ? (
-							<a
-								className="iclub-store-link"
-								href={iclubSection.appStoreUrl}
-								target="_blank"
-								rel="noreferrer"
-							>
-								<img
-									src="/assets/brand/app-store-badge.svg"
-									alt="Stiahnuť z App Store"
-								/>
-							</a>
+				<div className="iclub-links-section">
+					<a
+						className="iclub-link"
+						href={iclubSection.url || undefined}
+						target={iclubSection.url ? "_blank" : undefined}
+						rel={iclubSection.url ? "noreferrer" : undefined}
+					>
+						<img src="/assets/brand/iclub.jpg" alt="iClub" />
+						<span>{iclubSection.text}</span>
+					</a>
+					{iclubSection.appStoreUrl || iclubSection.googlePlayUrl ? (
+						<div className="iclub-store-links">
+							{iclubSection.appStoreUrl ? (
+								<a
+									className="iclub-store-link"
+									href={iclubSection.appStoreUrl}
+									target="_blank"
+									rel="noreferrer"
+								>
+									<img
+										src="/assets/brand/app-store-badge.svg"
+										alt="Stiahnuť z App Store"
+									/>
+								</a>
+							) : null}
+							{iclubSection.googlePlayUrl ? (
+								<a
+									className="iclub-store-link"
+									href={iclubSection.googlePlayUrl}
+									target="_blank"
+									rel="noreferrer"
+								>
+									<img
+										src="/assets/brand/google-play-badge.svg"
+										alt="Stiahnuť z Google Play"
+									/>
+								</a>
+							) : null}
+						</div>
+					) : null}
+				</div>
+				{iclubSection.guideText ? (
+					<div className="iclub-guide-section">
+						{iclubSection.guideHeading ? (
+							<h3>{iclubSection.guideHeading}</h3>
 						) : null}
-						{iclubSection.googlePlayUrl ? (
-							<a
-								className="iclub-store-link"
-								href={iclubSection.googlePlayUrl}
-								target="_blank"
-								rel="noreferrer"
-							>
-								<img
-									src="/assets/brand/google-play-badge.svg"
-									alt="Stiahnuť z Google Play"
-								/>
-							</a>
-						) : null}
+						<div className="iclub-guide-copy">
+							{iclubSection.guideText
+								.split(/\n+/)
+								.map((paragraph) => paragraph.trim())
+								.filter((paragraph) => paragraph.length > 0)
+								.map((paragraph) => (
+									<p key={paragraph}>{paragraph}</p>
+								))}
+						</div>
 					</div>
 				) : null}
 			</section>
@@ -2462,6 +2484,32 @@ function AdminPage() {
 											}))
 										}
 										placeholder="https://play.google.com/..."
+									/>
+								</label>
+								<label>
+									Nadpis návodu
+									<input
+										value={iclubDraft.guideHeading}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												guideHeading: event.target.value,
+											}))
+										}
+									/>
+								</label>
+								<label>
+									Návod pre používateľov
+									<textarea
+										value={iclubDraft.guideText}
+										onChange={(event) =>
+											setIclubDraft((current) => ({
+												...current,
+												guideText: event.target.value,
+											}))
+										}
+										rows={8}
+										placeholder="Postup pre používanie appky iClub..."
 									/>
 								</label>
 								{iclubMessage ? (
