@@ -278,11 +278,15 @@ async function initDatabase() {
 	);
 
 	await pool.query(
-		"UPDATE admin_users SET email = $1 WHERE username = 'admin' AND (email IS NULL OR email = '')",
+		`UPDATE admin_users SET email = $1
+		 WHERE username = 'admin' AND (email IS NULL OR email = '')
+		   AND NOT EXISTS (SELECT 1 FROM admin_users WHERE email = $1)`,
 		["jakub.demeter@gmail.com"],
 	);
 	await pool.query(
-		"UPDATE admin_users SET email = $1 WHERE username = 'lubenko.holoska' AND (email IS NULL OR email = '')",
+		`UPDATE admin_users SET email = $1
+		 WHERE username = 'lubenko.holoska' AND (email IS NULL OR email = '')
+		   AND NOT EXISTS (SELECT 1 FROM admin_users WHERE email = $1)`,
 		["pidiman@gmail.com"],
 	);
 
