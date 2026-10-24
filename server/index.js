@@ -12,6 +12,7 @@ const jwtSecret = process.env.JWT_SECRET;
 const adminUser = process.env.ADMIN_USER;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const mailFrom = process.env.MAIL_FROM || "noreply@localhost";
+const appUrl = (process.env.APP_URL || "").replace(/\/+$/, "");
 
 if (!process.env.DATABASE_URL) {
 	throw new Error("DATABASE_URL is required");
@@ -903,12 +904,36 @@ app.post("/api/admin/users", authenticate, requireAdmin, async (req, res) => {
 	);
 	const row = result.rows[0];
 
+	let welcomeEmailSent = false;
+	if (row.email) {
+		const loginUrl = `${appUrl || `https://${req.get("host")}`}/admin`;
+		try {
+			await smtpTransport.sendMail({
+				from: mailFrom,
+				to: row.email,
+				subject: "Nový účet – HERO GYM Stupava",
+				text:
+					`Ahoj ${row.username},\n\n` +
+					`bol ti vytvorený účet v administrácii HERO GYM Stupava.\n\n` +
+					`Prihlasovacie meno: ${row.username}\n` +
+					`Rola: ${row.role}\n` +
+					`Prihlásenie: ${loginUrl}\n\n` +
+					`Heslo ti oznámi administrátor. Vlastné heslo si môžeš kedykoľvek nastaviť ` +
+					`cez „Zabudnuté heslo“ na prihlasovacej stránke pomocou tohto emailu.\n`,
+			});
+			welcomeEmailSent = true;
+		} catch (error) {
+			console.error("Failed to send welcome email", error);
+		}
+	}
+
 	res.status(201).json({
 		id: row.id,
 		username: row.username,
 		email: row.email,
 		role: row.role,
 		createdAt: row.created_at,
+		welcomeEmailSent,
 	});
 });
 

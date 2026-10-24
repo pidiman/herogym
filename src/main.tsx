@@ -1273,7 +1273,7 @@ function AdminPage() {
 					email: newUserEmail,
 				}),
 			});
-			const data = await readApiJson<AdminUser>(
+			const data = await readApiJson<AdminUser & { welcomeEmailSent?: boolean }>(
 				response,
 				"Používateľa sa nepodarilo vytvoriť.",
 			);
@@ -1284,7 +1284,13 @@ function AdminPage() {
 			setNewUserEmail("");
 			setNewUserPassword("");
 			setNewUserRole("moderator");
-			setUsersMessage(`Používateľ ${data.username} bol vytvorený.`);
+			setUsersMessage(
+				!data.email
+					? `Používateľ ${data.username} bol vytvorený.`
+					: data.welcomeEmailSent
+						? `Používateľ ${data.username} bol vytvorený, email odoslaný na ${data.email}.`
+						: `Používateľ ${data.username} bol vytvorený, ale email sa nepodarilo odoslať.`,
+			);
 		} catch (error) {
 			setUsersMessage(
 				error instanceof Error
