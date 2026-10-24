@@ -9,8 +9,14 @@ const { Pool } = pg;
 
 const port = Number(process.env.PORT || 3078);
 const jwtSecret = process.env.JWT_SECRET;
-const adminUser = process.env.ADMIN_USER;
-const adminPassword = process.env.ADMIN_PASSWORD;
+const adminUser = process.env.ADMIN_USER || "admin";
+// Prvý admin účet sa vytvorí s týmto heslom a pri prvom prihlásení
+// si ho používateľ musí zmeniť a doplniť email.
+const INITIAL_ADMIN_PASSWORD = "12345";
+const SETUP_ALLOWED_PATHS = new Set([
+	"/api/admin/me",
+	"/api/admin/complete-setup",
+]);
 const mailFrom = process.env.MAIL_FROM || "noreply@localhost";
 const appUrl = (process.env.APP_URL || "").replace(/\/+$/, "");
 
@@ -20,10 +26,6 @@ if (!process.env.DATABASE_URL) {
 
 if (!jwtSecret || jwtSecret.length < 32) {
 	throw new Error("JWT_SECRET must be at least 32 characters");
-}
-
-if (!adminUser || !adminPassword) {
-	throw new Error("ADMIN_USER and ADMIN_PASSWORD are required");
 }
 
 const pool = new Pool({
@@ -245,6 +247,9 @@ async function initDatabase() {
 	await pool.query(
 		"ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email TEXT",
 	);
+	await pool.query(
+		"ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
+	);
 	await pool.query(`
     DO $$
     BEGIN
@@ -275,19 +280,6 @@ async function initDatabase() {
   `);
 	await pool.query(
 		"CREATE INDEX IF NOT EXISTS password_reset_codes_user_idx ON password_reset_codes(user_id)",
-	);
-
-	await pool.query(
-		`UPDATE admin_users SET email = $1
-		 WHERE username = 'admin' AND (email IS NULL OR email = '')
-		   AND NOT EXISTS (SELECT 1 FROM admin_users WHERE email = $1)`,
-		["jakub.demeter@gmail.com"],
-	);
-	await pool.query(
-		`UPDATE admin_users SET email = $1
-		 WHERE username = 'lubenko.holoska' AND (email IS NULL OR email = '')
-		   AND NOT EXISTS (SELECT 1 FROM admin_users WHERE email = $1)`,
-		["pidiman@gmail.com"],
 	);
 
 	await pool.query(`
@@ -444,20 +436,21 @@ async function initDatabase() {
     ADD COLUMN IF NOT EXISTS guide_text TEXT NOT NULL DEFAULT ''
   `);
 
-	const existing = await pool.query(
-		"SELECT id FROM admin_users WHERE username = $1",
-		[adminUser],
+	// Prvý admin účet – vytvorí sa iba vtedy, keď v databáze nie je žiadny admin.
+	const admins = await pool.query(
+		"SELECT id FROM admin_users WHERE role = 'admin' LIMIT 1",
 	);
-	if (existing.rowCount === 0) {
-		const passwordHash = await bcrypt.hash(adminPassword, 12);
+	if (admins.rowCount === 0) {
+		const passwordHash = await bcrypt.hash(INITIAL_ADMIN_PASSWORD, 12);
 		await pool.query(
-			"INSERT INTO admin_users (username, password_hash, role) VALUES ($1, $2, 'admin')",
+			`INSERT INTO admin_users (username, password_hash, role, must_change_password)
+			 VALUES ($1, $2, 'admin', TRUE)
+			 ON CONFLICT (username) DO UPDATE
+			   SET password_hash = EXCLUDED.password_hash, role = 'admin', must_change_password = TRUE`,
 			[adminUser, passwordHash],
 		);
-	} else {
-		await pool.query(
-			"UPDATE admin_users SET role = 'admin' WHERE username = $1",
-			[adminUser],
+		console.log(
+			`Vytvorený prvý admin účet "${adminUser}" – pri prvom prihlásení treba zmeniť heslo a doplniť email.`,
 		);
 	}
 
@@ -605,7 +598,7 @@ async function authenticate(req, res, next) {
 	}
 
 	const result = await pool.query(
-		"SELECT id, username, role FROM admin_users WHERE id = $1",
+		"SELECT id, username, role, email, must_change_password FROM admin_users WHERE id = $1",
 		[payload.sub],
 	);
 	const user = result.rows[0];
@@ -614,7 +607,22 @@ async function authenticate(req, res, next) {
 		return res.status(401).json({ message: "Unauthorized" });
 	}
 
-	req.admin = { sub: user.id, username: user.username, role: user.role };
+	req.admin = {
+		sub: user.id,
+		username: user.username,
+		role: user.role,
+		email: user.email,
+		mustChangePassword: user.must_change_password,
+	};
+
+	const path = req.originalUrl.split("?")[0];
+	if (user.must_change_password && !SETUP_ALLOWED_PATHS.has(path)) {
+		return res.status(403).json({
+			code: "MUST_CHANGE_PASSWORD",
+			message: "Najprv si zmeň heslo a doplň email.",
+		});
+	}
+
 	return next();
 }
 
@@ -806,7 +814,7 @@ app.post("/api/admin/login", async (req, res) => {
 	}
 
 	const result = await pool.query(
-		"SELECT id, username, password_hash, role FROM admin_users WHERE username = $1",
+		"SELECT id, username, password_hash, role, must_change_password FROM admin_users WHERE username = $1",
 		[username],
 	);
 	const user = result.rows[0];
@@ -827,6 +835,7 @@ app.post("/api/admin/login", async (req, res) => {
 		id: user.id,
 		username: user.username,
 		role: user.role,
+		mustChangePassword: user.must_change_password,
 	});
 });
 
@@ -835,6 +844,58 @@ app.get("/api/admin/me", authenticate, (req, res) => {
 		id: req.admin.sub,
 		username: req.admin.username,
 		role: req.admin.role,
+		email: req.admin.email,
+		mustChangePassword: req.admin.mustChangePassword,
+	});
+});
+
+app.post("/api/admin/complete-setup", authenticate, async (req, res) => {
+	const email = String(req.body?.email || "")
+		.trim()
+		.toLowerCase();
+	const password = String(req.body?.password || "");
+
+	if (!email || !emailRegex.test(email)) {
+		return res.status(400).json({ message: "Zadaj platný email." });
+	}
+	if (password.length < 8) {
+		return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
+	}
+
+	const current = await pool.query(
+		"SELECT password_hash FROM admin_users WHERE id = $1",
+		[req.admin.sub],
+	);
+	if (await bcrypt.compare(password, current.rows[0].password_hash)) {
+		return res
+			.status(400)
+			.json({ message: "Nové heslo musí byť iné ako pôvodné." });
+	}
+
+	const emailExists = await pool.query(
+		"SELECT id FROM admin_users WHERE email = $1 AND id <> $2",
+		[email, req.admin.sub],
+	);
+	if (emailExists.rowCount > 0) {
+		return res
+			.status(409)
+			.json({ message: "Používateľ s týmto emailom už existuje." });
+	}
+
+	const passwordHash = await bcrypt.hash(password, 12);
+	await pool.query(
+		`UPDATE admin_users
+		 SET password_hash = $1, email = $2, must_change_password = FALSE, updated_at = NOW()
+		 WHERE id = $3`,
+		[passwordHash, email, req.admin.sub],
+	);
+
+	return res.json({
+		ok: true,
+		id: req.admin.sub,
+		username: req.admin.username,
+		role: req.admin.role,
+		email,
 	});
 });
 
@@ -1584,7 +1645,7 @@ app.post("/api/admin/password-reset/confirm", async (req, res) => {
 	try {
 		await client.query("BEGIN");
 		await client.query(
-			"UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+			"UPDATE admin_users SET password_hash = $1, must_change_password = FALSE, updated_at = NOW() WHERE id = $2",
 			[passwordHash, user.id],
 		);
 		await client.query(

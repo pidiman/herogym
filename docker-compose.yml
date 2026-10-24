@@ -31,8 +31,7 @@ services:
       PORT: 3078
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASS}@herogym-db:5432/${DB_NAME}
       JWT_SECRET: ${JWT_SECRET}
-      ADMIN_USER: ${ADMIN_USER}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_USER: ${ADMIN_USER:-admin}
       SMTP_HOST: ${SMTP_HOST:-smtp-relay}
       SMTP_PORT: ${SMTP_PORT:-25}
       SMTP_SECURE: ${SMTP_SECURE:-false}

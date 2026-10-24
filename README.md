@@ -46,10 +46,11 @@ Ak už máš `.env` vytvorený zo staršej verzie projektu, doplň:
 ```env
 JWT_SECRET=nahodny_retazec_minimalne_32_znakov
 ADMIN_USER=admin
-ADMIN_PASSWORD=sem_daj_silne_admin_heslo
 ```
 
-Prvý admin používateľ sa vytvorí automaticky pri štarte API, ak ešte neexistuje.
+Ak v databáze nie je žiadny admin, API pri štarte vytvorí prvý účet **`admin` / `12345`**.
+Pri prvom prihlásení je povinné zmeniť heslo (min. 8 znakov) a doplniť email – dovtedy
+admin sekcia nič iné nepovolí.
 
 ## Nginx Proxy Manager
 

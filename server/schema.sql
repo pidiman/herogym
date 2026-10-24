@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   password_hash TEXT NOT NULL,
   email TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'moderator' CHECK (role IN ('admin', 'moderator')),
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

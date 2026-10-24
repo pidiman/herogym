@@ -264,6 +264,14 @@ type AdminUser = {
 
 type ResetFlowMode = "login" | "request" | "confirm" | "done";
 
+type AdminSession = {
+	username: string;
+	role: AdminRole;
+	id?: number;
+	email?: string | null;
+	mustChangePassword?: boolean;
+};
+
 const iconLabels: Record<keyof typeof iconMap, string> = {
 	dumbbell: "Činka",
 	calendar: "Kalendár",
@@ -879,6 +887,12 @@ function AdminPage() {
 	const [adminName, setAdminName] = useState("");
 	const [adminRole, setAdminRole] = useState<AdminRole>("moderator");
 	const [adminId, setAdminId] = useState<number | null>(null);
+	const [mustChangePassword, setMustChangePassword] = useState(false);
+	const [setupEmail, setSetupEmail] = useState("");
+	const [setupPassword, setSetupPassword] = useState("");
+	const [setupPasswordConfirm, setSetupPasswordConfirm] = useState("");
+	const [setupMessage, setSetupMessage] = useState("");
+	const [isSetupSaving, setIsSetupSaving] = useState(false);
 	const [message, setMessage] = useState("");
 	const [trainingDraft, setTrainingDraft] = useState<TrainingSection>(
 		defaultTrainingSection,
@@ -956,14 +970,12 @@ function AdminPage() {
 			},
 		})
 			.then((response) =>
-				readApiJson<{ username: string; role: AdminRole; id?: number }>(
-					response,
-					"Prihlásenie vypršalo.",
-				),
+				readApiJson<AdminSession>(response, "Prihlásenie vypršalo."),
 			)
-			.then((data: { username: string; role: AdminRole; id?: number }) => {
+			.then((data: AdminSession) => {
 				setAdminName(data.username);
 				setAdminRole(data.role);
+				setMustChangePassword(Boolean(data.mustChangePassword));
 				if (typeof data.id === "number") {
 					setAdminId(data.id);
 				}
@@ -1169,7 +1181,7 @@ function AdminPage() {
 	}, [getToken]);
 
 	useEffect(() => {
-		if (adminName) {
+		if (adminName && !mustChangePassword) {
 			void loadTrainingSection();
 			void loadGroupTrainingSection();
 			void loadPricingSection();
@@ -1183,6 +1195,7 @@ function AdminPage() {
 	}, [
 		adminName,
 		adminRole,
+		mustChangePassword,
 		loadTrainingSection,
 		loadPricingSection,
 		loadUsers,
@@ -1273,10 +1286,9 @@ function AdminPage() {
 					email: newUserEmail,
 				}),
 			});
-			const data = await readApiJson<AdminUser & { welcomeEmailSent?: boolean }>(
-				response,
-				"Používateľa sa nepodarilo vytvoriť.",
-			);
+			const data = await readApiJson<
+				AdminUser & { welcomeEmailSent?: boolean }
+			>(response, "Používateľa sa nepodarilo vytvoriť.");
 
 			setUsers((current) => [...current, data]);
 			setUserEmails((current) => ({ ...current, [data.id]: data.email || "" }));
@@ -1397,16 +1409,15 @@ function AdminPage() {
 				},
 				body: JSON.stringify({ username, password }),
 			});
-			const data = await readApiJson<{
-				token: string;
-				username: string;
-				role: AdminRole;
-				id?: number;
-			}>(response, "Prihlásenie sa nepodarilo.");
+			const data = await readApiJson<AdminSession & { token: string }>(
+				response,
+				"Prihlásenie sa nepodarilo.",
+			);
 
 			localStorage.setItem("herogym_admin_token", data.token);
 			setAdminName(data.username);
 			setAdminRole(data.role);
+			setMustChangePassword(Boolean(data.mustChangePassword));
 			if (typeof data.id === "number") {
 				setAdminId(data.id);
 			}
@@ -1420,11 +1431,52 @@ function AdminPage() {
 		}
 	}
 
+	async function completeSetup(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSetupMessage("");
+
+		if (setupPassword !== setupPasswordConfirm) {
+			setSetupMessage("Heslá sa nezhodujú.");
+			return;
+		}
+
+		setIsSetupSaving(true);
+		try {
+			const response = await fetch("/api/admin/complete-setup", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${getToken()}`,
+				},
+				body: JSON.stringify({ email: setupEmail, password: setupPassword }),
+			});
+			await readApiJson<{ ok: boolean }>(
+				response,
+				"Nastavenie účtu sa nepodarilo.",
+			);
+
+			setSetupEmail("");
+			setSetupPassword("");
+			setSetupPasswordConfirm("");
+			setMustChangePassword(false);
+		} catch (error) {
+			setSetupMessage(
+				error instanceof Error
+					? error.message
+					: "Nastavenie účtu sa nepodarilo.",
+			);
+		} finally {
+			setIsSetupSaving(false);
+		}
+	}
+
 	function logout() {
 		localStorage.removeItem("herogym_admin_token");
 		setAdminName("");
 		setAdminRole("moderator");
 		setAdminId(null);
+		setMustChangePassword(false);
+		setSetupMessage("");
 		setUsername("");
 		setPassword("");
 		setActiveAdminSection(null);
@@ -1747,7 +1799,11 @@ function AdminPage() {
 				<img src="/assets/gallery/fitnes-2.jpg" alt="" />
 			</div>
 			<section
-				className={adminName ? "admin-card admin-editor" : "admin-card"}
+				className={
+					adminName && !mustChangePassword
+						? "admin-card admin-editor"
+						: "admin-card"
+				}
 				aria-labelledby="admin-title"
 			>
 				<img
@@ -1756,7 +1812,64 @@ function AdminPage() {
 					alt="HERO GYM STUPAVA"
 				/>
 				<p className="eyebrow">Admin sekcia</p>
-				{adminName ? (
+				{adminName && mustChangePassword ? (
+					<>
+						<h1 id="admin-title">Nastavenie účtu</h1>
+						<p className="admin-copy">
+							Prihlásil si sa dočasným heslom. Pred pokračovaním si nastav
+							vlastné heslo a doplň email (slúži na obnovu hesla).
+						</p>
+						<form className="admin-form" onSubmit={completeSetup}>
+							<label>
+								Email
+								<input
+									type="email"
+									value={setupEmail}
+									onChange={(event) => setSetupEmail(event.target.value)}
+									autoComplete="email"
+									required
+								/>
+							</label>
+							<label>
+								Nové heslo (min. 8 znakov)
+								<input
+									type="password"
+									value={setupPassword}
+									onChange={(event) => setSetupPassword(event.target.value)}
+									autoComplete="new-password"
+									minLength={8}
+									required
+								/>
+							</label>
+							<label>
+								Nové heslo znova
+								<input
+									type="password"
+									value={setupPasswordConfirm}
+									onChange={(event) =>
+										setSetupPasswordConfirm(event.target.value)
+									}
+									autoComplete="new-password"
+									minLength={8}
+									required
+								/>
+							</label>
+							{setupMessage ? (
+								<p className="admin-message">{setupMessage}</p>
+							) : null}
+							<button
+								className="button primary"
+								disabled={isSetupSaving}
+								type="submit"
+							>
+								{isSetupSaving ? "Ukladám..." : "Uložiť a pokračovať"}
+							</button>
+							<button type="button" className="button ghost" onClick={logout}>
+								Odhlásiť
+							</button>
+						</form>
+					</>
+				) : adminName ? (
 					<div className="admin-dashboard">
 						<div className="admin-toolbar">
 							<div>
