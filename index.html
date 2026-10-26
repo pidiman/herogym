@@ -9,6 +9,21 @@
     />
     <meta name="theme-color" content="#0b0c0f" />
     <title>HERO GYM STUPAVA</title>
+    <!-- Umami analytics (umami-vps.pidiman.sk) – bez cookies, iba na produkčnej doméne, bez /admin -->
+    <script>
+      window.umamiBeforeSend = function (type, payload) {
+        return payload && typeof payload.url === "string" && payload.url.indexOf("/admin") === 0
+          ? false
+          : payload;
+      };
+    </script>
+    <script
+      defer
+      src="https://umami-vps.pidiman.sk/script.js"
+      data-website-id="1728d9db-b1c8-40fe-a128-d892056affc5"
+      data-domains="hg.pidiman.sk"
+      data-before-send="umamiBeforeSend"
+    ></script>
   </head>
   <body>
     <div id="root"></div>
