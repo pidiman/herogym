@@ -24,6 +24,7 @@ import {
 	Linkedin,
 	Link as LinkIcon,
 	LockKeyhole,
+	LockOpen,
 	Mail,
 	MailOpen,
 	MapPin,
@@ -35,6 +36,7 @@ import {
 	Navigation,
 	Phone,
 	Plus,
+	RefreshCw,
 	Save,
 	Send,
 	ShieldCheck,
@@ -271,6 +273,62 @@ type AdminSession = {
 	email?: string | null;
 	mustChangePassword?: boolean;
 };
+
+type RateLimitScope = "login" | "reset";
+
+type RateLimitRule = {
+	maxAttempts: number;
+	windowMin: number;
+};
+
+type SecuritySettings = Record<RateLimitScope, RateLimitRule>;
+
+type AuthAttemptAction = "login" | "reset_request" | "reset_confirm";
+
+type AuthAttempt = {
+	id: number;
+	ip: string;
+	action: AuthAttemptAction;
+	identifier: string | null;
+	success: boolean;
+	blocked: boolean;
+	userAgent: string | null;
+	createdAt: string;
+};
+
+type BlockedIp = {
+	ip: string;
+	scope: RateLimitScope;
+	attempts: number;
+	lastAt: string;
+	retryAfter: number;
+};
+
+type SecurityOverview = {
+	settings: SecuritySettings;
+	blocked: BlockedIp[];
+	attempts: AuthAttempt[];
+};
+
+const defaultSecuritySettings: SecuritySettings = {
+	login: { maxAttempts: 5, windowMin: 15 },
+	reset: { maxAttempts: 5, windowMin: 15 },
+};
+
+const rateLimitScopeLabels: Record<RateLimitScope, string> = {
+	login: "Prihlásenie",
+	reset: "Reset hesla",
+};
+
+const authAttemptActionLabels: Record<AuthAttemptAction, string> = {
+	login: "Prihlásenie",
+	reset_request: "Žiadosť o reset",
+	reset_confirm: "Overenie kódu",
+};
+
+function formatDateTime(value: string) {
+	return new Date(value).toLocaleString("sk-SK");
+}
 
 const iconLabels: Record<keyof typeof iconMap, string> = {
 	dumbbell: "Činka",
@@ -936,8 +994,18 @@ function AdminPage() {
 		| "about"
 		| "iclub"
 		| "users"
+		| "security"
 		| null
 	>(null);
+	const [securitySettings, setSecuritySettings] = useState<SecuritySettings>(
+		defaultSecuritySettings,
+	);
+	const [blockedIps, setBlockedIps] = useState<BlockedIp[]>([]);
+	const [authAttempts, setAuthAttempts] = useState<AuthAttempt[]>([]);
+	const [attemptsIpFilter, setAttemptsIpFilter] = useState("");
+	const [securityMessage, setSecurityMessage] = useState("");
+	const [isSecurityLoading, setIsSecurityLoading] = useState(false);
+	const [isSecuritySaving, setIsSecuritySaving] = useState(false);
 	const [trainingMessage, setTrainingMessage] = useState("");
 	const [groupTrainingMessage, setGroupTrainingMessage] = useState("");
 	const [pricingMessage, setPricingMessage] = useState("");
@@ -1180,6 +1248,41 @@ function AdminPage() {
 		}
 	}, [getToken]);
 
+	const loadSecurity = useCallback(
+		async (ipFilter = "") => {
+			setIsSecurityLoading(true);
+			setSecurityMessage("");
+
+			try {
+				const query = ipFilter.trim()
+					? `?ip=${encodeURIComponent(ipFilter.trim())}`
+					: "";
+				const response = await fetch(`/api/admin/security${query}`, {
+					headers: {
+						Authorization: `Bearer ${getToken()}`,
+					},
+				});
+				const data = await readApiJson<SecurityOverview>(
+					response,
+					"Bezpečnostné údaje sa nepodarilo načítať.",
+				);
+
+				setSecuritySettings(data.settings);
+				setBlockedIps(data.blocked);
+				setAuthAttempts(data.attempts);
+			} catch (error) {
+				setSecurityMessage(
+					error instanceof Error
+						? error.message
+						: "Bezpečnostné údaje sa nepodarilo načítať.",
+				);
+			} finally {
+				setIsSecurityLoading(false);
+			}
+		},
+		[getToken],
+	);
+
 	useEffect(() => {
 		if (adminName && !mustChangePassword) {
 			void loadTrainingSection();
@@ -1190,6 +1293,7 @@ function AdminPage() {
 			void loadIclubSection();
 			if (adminRole === "admin") {
 				void loadUsers();
+				void loadSecurity();
 			}
 		}
 	}, [
@@ -1199,6 +1303,7 @@ function AdminPage() {
 		loadTrainingSection,
 		loadPricingSection,
 		loadUsers,
+		loadSecurity,
 		loadContactSection,
 		loadGroupTrainingSection,
 		loadAboutSection,
@@ -1257,6 +1362,78 @@ function AdminPage() {
 		} finally {
 			setIsResetSubmitting(false);
 		}
+	}
+
+	async function saveSecuritySettings(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setIsSecuritySaving(true);
+		setSecurityMessage("");
+
+		try {
+			const response = await fetch("/api/admin/security/settings", {
+				method: "PUT",
+				headers: {
+					Authorization: `Bearer ${getToken()}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(securitySettings),
+			});
+			const data = await readApiJson<SecuritySettings>(
+				response,
+				"Nastavenia sa nepodarilo uložiť.",
+			);
+
+			setSecuritySettings(data);
+			await loadSecurity(attemptsIpFilter);
+			setSecurityMessage("Nastavenia limitov boli uložené.");
+		} catch (error) {
+			setSecurityMessage(
+				error instanceof Error
+					? error.message
+					: "Nastavenia sa nepodarilo uložiť.",
+			);
+		} finally {
+			setIsSecuritySaving(false);
+		}
+	}
+
+	async function unblockIp(ip: string, scope: RateLimitScope) {
+		setSecurityMessage("");
+
+		try {
+			const response = await fetch("/api/admin/security/unblock", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${getToken()}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ ip, scope }),
+			});
+			await readApiJson<{ ok: boolean }>(
+				response,
+				"IP adresu sa nepodarilo odblokovať.",
+			);
+
+			await loadSecurity(attemptsIpFilter);
+			setSecurityMessage(`IP adresa ${ip} bola odblokovaná.`);
+		} catch (error) {
+			setSecurityMessage(
+				error instanceof Error
+					? error.message
+					: "IP adresu sa nepodarilo odblokovať.",
+			);
+		}
+	}
+
+	function updateSecurityRule(
+		scope: RateLimitScope,
+		field: keyof RateLimitRule,
+		value: string,
+	) {
+		setSecuritySettings((current) => ({
+			...current,
+			[scope]: { ...current[scope], [field]: Number(value) },
+		}));
 	}
 
 	function backToLogin() {
@@ -1482,6 +1659,9 @@ function AdminPage() {
 		setActiveAdminSection(null);
 		setUsers([]);
 		setUserPasswords({});
+		setBlockedIps([]);
+		setAuthAttempts([]);
+		setAttemptsIpFilter("");
 	}
 
 	function updateCard(index: number, nextCard: TrainingCard) {
@@ -1963,6 +2143,21 @@ function AdminPage() {
 									}
 								>
 									Používatelia
+								</button>
+							) : null}
+							{adminRole === "admin" ? (
+								<button
+									className={
+										activeAdminSection === "security" ? "is-active" : ""
+									}
+									type="button"
+									onClick={() =>
+										setActiveAdminSection((current) =>
+											current === "security" ? null : "security",
+										)
+									}
+								>
+									Bezpečnosť
 								</button>
 							) : null}
 						</div>
@@ -2809,6 +3004,197 @@ function AdminPage() {
 										);
 									})}
 								</div>
+							</div>
+						) : null}
+
+						{activeAdminSection === "security" && adminRole === "admin" ? (
+							<div className="admin-editor-form">
+								<form
+									className="admin-editor-form"
+									onSubmit={saveSecuritySettings}
+								>
+									<div className="admin-editor-heading">
+										<h2>Limity pokusov z jednej IP</h2>
+									</div>
+									<div className="admin-cards-editor">
+										{(["login", "reset"] as const).map((scope) => (
+											<article className="admin-card-editor" key={scope}>
+												<div className="admin-card-editor-head">
+													<strong>{rateLimitScopeLabels[scope]}</strong>
+												</div>
+												<label>
+													Max. počet pokusov
+													<input
+														type="number"
+														min={1}
+														max={1000}
+														value={securitySettings[scope].maxAttempts}
+														onChange={(event) =>
+															updateSecurityRule(
+																scope,
+																"maxAttempts",
+																event.target.value,
+															)
+														}
+														disabled={isSecurityLoading}
+													/>
+												</label>
+												<label>
+													Časové okno (minúty)
+													<input
+														type="number"
+														min={1}
+														max={1440}
+														value={securitySettings[scope].windowMin}
+														onChange={(event) =>
+															updateSecurityRule(
+																scope,
+																"windowMin",
+																event.target.value,
+															)
+														}
+														disabled={isSecurityLoading}
+													/>
+												</label>
+											</article>
+										))}
+									</div>
+									<p className="admin-hint">
+										Pri prihlásení sa počítajú neúspešné pokusy, pri resete
+										každá žiadosť o kód a každý nesprávny kód. Úspešné
+										prihlásenie vynuluje počítadlo pre danú IP.
+									</p>
+									<button
+										className="button primary"
+										disabled={isSecuritySaving || isSecurityLoading}
+										type="submit"
+									>
+										<Save size={18} />{" "}
+										{isSecuritySaving ? "Ukladám..." : "Uložiť limity"}
+									</button>
+								</form>
+
+								{securityMessage ? (
+									<p className="admin-message">{securityMessage}</p>
+								) : null}
+
+								<div className="admin-editor-heading">
+									<h2>Zablokované IP adresy</h2>
+								</div>
+								{blockedIps.length === 0 ? (
+									<p className="admin-hint">
+										Momentálne nie je zablokovaná žiadna IP adresa.
+									</p>
+								) : (
+									<div className="admin-cards-editor">
+										{blockedIps.map((item) => (
+											<article
+												className="admin-card-editor"
+												key={`${item.scope}-${item.ip}`}
+											>
+												<div className="admin-card-editor-head">
+													<strong>{item.ip}</strong>
+													<button
+														type="button"
+														onClick={() => unblockIp(item.ip, item.scope)}
+														aria-label="Odblokovať IP adresu"
+														title="Odblokovať"
+													>
+														<LockOpen size={18} />
+													</button>
+												</div>
+												<p className="admin-hint">
+													{rateLimitScopeLabels[item.scope]} · {item.attempts}{" "}
+													pokusov · posledný {formatDateTime(item.lastAt)} ·
+													odblokuje sa o {Math.ceil(item.retryAfter / 60)} min.
+												</p>
+											</article>
+										))}
+									</div>
+								)}
+
+								<div className="admin-editor-heading">
+									<h2>Posledné pokusy</h2>
+								</div>
+								<form
+									className="admin-attempts-filter"
+									onSubmit={(event) => {
+										event.preventDefault();
+										void loadSecurity(attemptsIpFilter);
+									}}
+								>
+									<input
+										value={attemptsIpFilter}
+										onChange={(event) =>
+											setAttemptsIpFilter(event.target.value)
+										}
+										placeholder="Filtrovať podľa IP"
+										aria-label="Filtrovať podľa IP"
+									/>
+									<button
+										className="button ghost"
+										disabled={isSecurityLoading}
+										type="submit"
+									>
+										<RefreshCw size={18} />{" "}
+										{isSecurityLoading ? "Načítavam..." : "Obnoviť"}
+									</button>
+								</form>
+								{authAttempts.length === 0 && !isSecurityLoading ? (
+									<p className="admin-hint">Žiadne zaznamenané pokusy.</p>
+								) : (
+									<div className="admin-table-wrap">
+										<table className="admin-table">
+											<thead>
+												<tr>
+													<th>Čas</th>
+													<th>IP</th>
+													<th>Akcia</th>
+													<th>Meno / email</th>
+													<th>Výsledok</th>
+												</tr>
+											</thead>
+											<tbody>
+												{authAttempts.map((attempt) => (
+													<tr key={attempt.id} title={attempt.userAgent || ""}>
+														<td>{formatDateTime(attempt.createdAt)}</td>
+														<td>
+															<button
+																className="admin-link-button"
+																type="button"
+																onClick={() => {
+																	setAttemptsIpFilter(attempt.ip);
+																	void loadSecurity(attempt.ip);
+																}}
+															>
+																{attempt.ip}
+															</button>
+														</td>
+														<td>{authAttemptActionLabels[attempt.action]}</td>
+														<td>{attempt.identifier || "—"}</td>
+														<td>
+															<span
+																className={
+																	attempt.blocked
+																		? "admin-status is-blocked"
+																		: attempt.success
+																			? "admin-status is-success"
+																			: "admin-status is-failed"
+																}
+															>
+																{attempt.blocked
+																	? "Zablokované"
+																	: attempt.success
+																		? "Úspech"
+																		: "Neúspech"}
+															</span>
+														</td>
+													</tr>
+												))}
+											</tbody>
+										</table>
+									</div>
+								)}
 							</div>
 						) : null}
 					</div>

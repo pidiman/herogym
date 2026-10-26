@@ -58,9 +58,22 @@ const smtpTransport = nodemailer.createTransport({
 });
 
 const RESET_CODE_TTL_MIN = 30;
+const AUTH_ATTEMPTS_RETENTION_DAYS = 90;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const defaultSecuritySettings = {
+	login: { maxAttempts: 5, windowMin: 15 },
+	reset: { maxAttempts: 5, windowMin: 15 },
+};
+
+const rateLimitScopes = {
+	login: ["login"],
+	reset: ["reset_request", "reset_confirm"],
+};
+
 const app = express();
+// Client -> Nginx Proxy Manager -> web nginx -> API = 2 trusted hops.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 2));
 app.use(express.json());
 
 const asyncRoute = (handler) => (req, res, next) => {
@@ -280,6 +293,40 @@ async function initDatabase() {
   `);
 	await pool.query(
 		"CREATE INDEX IF NOT EXISTS password_reset_codes_user_idx ON password_reset_codes(user_id)",
+	);
+
+	await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_attempts (
+      id SERIAL PRIMARY KEY,
+      ip TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('login', 'reset_request', 'reset_confirm')),
+      identifier TEXT,
+      success BOOLEAN NOT NULL DEFAULT FALSE,
+      blocked BOOLEAN NOT NULL DEFAULT FALSE,
+      cleared BOOLEAN NOT NULL DEFAULT FALSE,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+	await pool.query(
+		"CREATE INDEX IF NOT EXISTS auth_attempts_ip_action_idx ON auth_attempts(ip, action, created_at)",
+	);
+	await pool.query(
+		"CREATE INDEX IF NOT EXISTS auth_attempts_created_idx ON auth_attempts(created_at)",
+	);
+
+	await pool.query(`
+    CREATE TABLE IF NOT EXISTS security_settings (
+      id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      login_max_attempts INT NOT NULL DEFAULT 5,
+      login_window_min INT NOT NULL DEFAULT 15,
+      reset_max_attempts INT NOT NULL DEFAULT 5,
+      reset_window_min INT NOT NULL DEFAULT 15,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+	await pool.query(
+		"INSERT INTO security_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
 	);
 
 	await pool.query(`
@@ -635,6 +682,105 @@ function requireAdmin(req, res, next) {
 	return next();
 }
 
+function getClientIp(req) {
+	const ip = req.ip || req.socket?.remoteAddress || "unknown";
+	return ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+}
+
+async function getSecuritySettings() {
+	const result = await pool.query(
+		"SELECT login_max_attempts, login_window_min, reset_max_attempts, reset_window_min FROM security_settings WHERE id = 1",
+	);
+	const row = result.rows[0];
+
+	if (!row) {
+		return defaultSecuritySettings;
+	}
+
+	return {
+		login: {
+			maxAttempts: row.login_max_attempts,
+			windowMin: row.login_window_min,
+		},
+		reset: {
+			maxAttempts: row.reset_max_attempts,
+			windowMin: row.reset_window_min,
+		},
+	};
+}
+
+// Counted attempts: failures (login, code confirmation) and every reset
+// request, since each one sends an email. Attempts rejected while blocked
+// and attempts cleared by unblock/successful login are not counted.
+const countedAttemptsCondition =
+	"NOT blocked AND NOT cleared AND (NOT success OR action = 'reset_request')";
+
+async function getRetryAfterSeconds(scope, ip) {
+	const { maxAttempts, windowMin } = (await getSecuritySettings())[scope];
+	const result = await pool.query(
+		`SELECT COUNT(*)::int AS count,
+      CEIL(EXTRACT(EPOCH FROM MIN(created_at) + make_interval(mins => $3::int) - NOW()))::int AS retry_after
+    FROM auth_attempts
+    WHERE ip = $1 AND action = ANY($2::text[]) AND ${countedAttemptsCondition}
+      AND created_at > NOW() - make_interval(mins => $3::int)`,
+		[ip, rateLimitScopes[scope], windowMin],
+	);
+	const { count, retry_after: retryAfter } = result.rows[0];
+
+	return count >= maxAttempts ? Math.max(1, retryAfter) : 0;
+}
+
+async function recordAuthAttempt(
+	req,
+	action,
+	{ identifier = null, success = false, blocked = false } = {},
+) {
+	await pool.query(
+		"INSERT INTO auth_attempts (ip, action, identifier, success, blocked, user_agent) VALUES ($1, $2, $3, $4, $5, $6)",
+		[
+			getClientIp(req),
+			action,
+			identifier ? String(identifier).slice(0, 200) : null,
+			success,
+			blocked,
+			String(req.headers["user-agent"] || "").slice(0, 300) || null,
+		],
+	);
+}
+
+async function clearAuthAttempts(scope, ip) {
+	await pool.query(
+		"UPDATE auth_attempts SET cleared = TRUE WHERE ip = $1 AND action = ANY($2::text[]) AND NOT cleared",
+		[ip, rateLimitScopes[scope]],
+	);
+}
+
+function rateLimit(scope, action, identifierField) {
+	return async (req, res, next) => {
+		const retryAfter = await getRetryAfterSeconds(scope, getClientIp(req));
+
+		if (retryAfter > 0) {
+			await recordAuthAttempt(req, action, {
+				identifier: req.body?.[identifierField],
+				blocked: true,
+			});
+			res.set("Retry-After", String(retryAfter));
+			return res.status(429).json({
+				message: `Príliš veľa pokusov. Skús to znova o ${Math.ceil(retryAfter / 60)} min.`,
+			});
+		}
+
+		return next();
+	};
+}
+
+async function purgeOldAuthAttempts() {
+	await pool.query(
+		"DELETE FROM auth_attempts WHERE created_at < NOW() - make_interval(days => $1::int)",
+		[AUTH_ATTEMPTS_RETENTION_DAYS],
+	);
+}
+
 app.get("/health", async (_req, res) => {
 	await pool.query("SELECT 1");
 	res.json({ ok: true });
@@ -805,39 +951,50 @@ app.get("/api/iclub-section", async (_req, res) => {
 	res.json(await getIclubSection());
 });
 
-app.post("/api/admin/login", async (req, res) => {
-	const username = String(req.body?.username || "").trim();
-	const password = String(req.body?.password || "");
+app.post(
+	"/api/admin/login",
+	rateLimit("login", "login", "username"),
+	async (req, res) => {
+		const username = String(req.body?.username || "").trim();
+		const password = String(req.body?.password || "");
 
-	if (!username || !password) {
-		return res.status(400).json({ message: "Meno a heslo sú povinné." });
-	}
+		if (!username || !password) {
+			return res.status(400).json({ message: "Meno a heslo sú povinné." });
+		}
 
-	const result = await pool.query(
-		"SELECT id, username, password_hash, role, must_change_password FROM admin_users WHERE username = $1",
-		[username],
-	);
-	const user = result.rows[0];
+		const result = await pool.query(
+			"SELECT id, username, password_hash, role, must_change_password FROM admin_users WHERE username = $1",
+			[username],
+		);
+		const user = result.rows[0];
 
-	if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-		return res.status(401).json({ message: "Nesprávne meno alebo heslo." });
-	}
+		if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+			await recordAuthAttempt(req, "login", { identifier: username });
+			return res.status(401).json({ message: "Nesprávne meno alebo heslo." });
+		}
 
-	const token = jwt.sign(
-		{ sub: user.id, username: user.username, role: user.role },
-		jwtSecret,
-		{
-			expiresIn: "8h",
-		},
-	);
-	return res.json({
-		token,
-		id: user.id,
-		username: user.username,
-		role: user.role,
-		mustChangePassword: user.must_change_password,
-	});
-});
+		await recordAuthAttempt(req, "login", {
+			identifier: username,
+			success: true,
+		});
+		await clearAuthAttempts("login", getClientIp(req));
+
+		const token = jwt.sign(
+			{ sub: user.id, username: user.username, role: user.role },
+			jwtSecret,
+			{
+				expiresIn: "8h",
+			},
+		);
+		return res.json({
+			token,
+			id: user.id,
+			username: user.username,
+			role: user.role,
+			mustChangePassword: user.must_change_password,
+		});
+	},
+);
 
 app.get("/api/admin/me", authenticate, (req, res) => {
 	res.json({
@@ -1545,124 +1702,266 @@ app.put("/api/admin/iclub-section", authenticate, async (req, res) => {
 	res.json(await getIclubSection());
 });
 
-app.post("/api/admin/password-reset/request", async (req, res) => {
-	const email = String(req.body?.email || "")
-		.trim()
-		.toLowerCase();
+app.post(
+	"/api/admin/password-reset/request",
+	rateLimit("reset", "reset_request", "email"),
+	async (req, res) => {
+		const email = String(req.body?.email || "")
+			.trim()
+			.toLowerCase();
 
-	if (!email || !emailRegex.test(email)) {
-		return res.status(400).json({ message: "Zadaj platný email." });
-	}
-
-	const result = await pool.query(
-		"SELECT id, username, email FROM admin_users WHERE email = $1",
-		[email],
-	);
-	const user = result.rows[0];
-
-	if (!user) {
-		return res.status(404).json({ message: "Tento email neexistuje." });
-	}
-
-	const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-	const codeHash = await bcrypt.hash(code, 12);
-
-	await pool.query(
-		"UPDATE password_reset_codes SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
-		[user.id],
-	);
-	await pool.query(
-		"INSERT INTO password_reset_codes (user_id, code_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '" +
-			RESET_CODE_TTL_MIN +
-			" minutes')",
-		[user.id, codeHash],
-	);
-
-	try {
-		await smtpTransport.sendMail({
-			from: mailFrom,
-			to: user.email,
-			subject: "Reset hesla – HERO GYM Stupava",
-			text:
-				`Ahoj ${user.username},\n\n` +
-				`prijali sme žiadosť o reset hesla pre tvoj admin účet.\n` +
-				`Tvoj jednorazový kód: ${code}\n\n` +
-				`Kód platí ${RESET_CODE_TTL_MIN} minút. Ak si reset nepožiadal/a, túto správu ignoruj.\n`,
-		});
-	} catch (error) {
-		console.error("Failed to send reset email", error);
-		return res.status(500).json({ message: "Email sa nepodarilo odoslať." });
-	}
-
-	res.json({ ok: true });
-});
-
-app.post("/api/admin/password-reset/confirm", async (req, res) => {
-	const email = String(req.body?.email || "")
-		.trim()
-		.toLowerCase();
-	const code = String(req.body?.code || "").trim();
-	const password = String(req.body?.password || "");
-
-	if (!email || !code || !password) {
-		return res
-			.status(400)
-			.json({ message: "Email, kód a nové heslo sú povinné." });
-	}
-
-	if (password.length < 8) {
-		return res.status(400).json({ message: "Heslo musí mať aspoň 8 znakov." });
-	}
-
-	const userResult = await pool.query(
-		"SELECT id FROM admin_users WHERE email = $1",
-		[email],
-	);
-	const user = userResult.rows[0];
-	if (!user) {
-		return res.status(400).json({ message: "Neplatný email alebo kód." });
-	}
-
-	const codesResult = await pool.query(
-		"SELECT id, code_hash FROM password_reset_codes WHERE user_id = $1 AND used_at IS NULL AND expires_at > NOW() ORDER BY created_at DESC LIMIT 5",
-		[user.id],
-	);
-
-	let matched = null;
-	for (const row of codesResult.rows) {
-		if (await bcrypt.compare(code, row.code_hash)) {
-			matched = row;
-			break;
+		if (!email || !emailRegex.test(email)) {
+			return res.status(400).json({ message: "Zadaj platný email." });
 		}
-	}
 
-	if (!matched) {
-		return res.status(400).json({ message: "Neplatný alebo expirovaný kód." });
-	}
-
-	const passwordHash = await bcrypt.hash(password, 12);
-	const client = await pool.connect();
-	try {
-		await client.query("BEGIN");
-		await client.query(
-			"UPDATE admin_users SET password_hash = $1, must_change_password = FALSE, updated_at = NOW() WHERE id = $2",
-			[passwordHash, user.id],
+		const result = await pool.query(
+			"SELECT id, username, email FROM admin_users WHERE email = $1",
+			[email],
 		);
-		await client.query(
+		const user = result.rows[0];
+
+		await recordAuthAttempt(req, "reset_request", {
+			identifier: email,
+			success: Boolean(user),
+		});
+
+		if (!user) {
+			return res.status(404).json({ message: "Tento email neexistuje." });
+		}
+
+		const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+		const codeHash = await bcrypt.hash(code, 12);
+
+		await pool.query(
 			"UPDATE password_reset_codes SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
 			[user.id],
 		);
-		await client.query("COMMIT");
-	} catch (error) {
-		await client.query("ROLLBACK");
-		console.error(error);
-		return res.status(500).json({ message: "Heslo sa nepodarilo zmeniť." });
-	} finally {
-		client.release();
+		await pool.query(
+			"INSERT INTO password_reset_codes (user_id, code_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL '" +
+				RESET_CODE_TTL_MIN +
+				" minutes')",
+			[user.id, codeHash],
+		);
+
+		try {
+			await smtpTransport.sendMail({
+				from: mailFrom,
+				to: user.email,
+				subject: "Reset hesla – HERO GYM Stupava",
+				text:
+					`Ahoj ${user.username},\n\n` +
+					`prijali sme žiadosť o reset hesla pre tvoj admin účet.\n` +
+					`Tvoj jednorazový kód: ${code}\n\n` +
+					`Kód platí ${RESET_CODE_TTL_MIN} minút. Ak si reset nepožiadal/a, túto správu ignoruj.\n`,
+			});
+		} catch (error) {
+			console.error("Failed to send reset email", error);
+			return res.status(500).json({ message: "Email sa nepodarilo odoslať." });
+		}
+
+		res.json({ ok: true });
+	},
+);
+
+app.post(
+	"/api/admin/password-reset/confirm",
+	rateLimit("reset", "reset_confirm", "email"),
+	async (req, res) => {
+		const email = String(req.body?.email || "")
+			.trim()
+			.toLowerCase();
+		const code = String(req.body?.code || "").trim();
+		const password = String(req.body?.password || "");
+
+		if (!email || !code || !password) {
+			return res
+				.status(400)
+				.json({ message: "Email, kód a nové heslo sú povinné." });
+		}
+
+		if (password.length < 8) {
+			return res
+				.status(400)
+				.json({ message: "Heslo musí mať aspoň 8 znakov." });
+		}
+
+		const userResult = await pool.query(
+			"SELECT id FROM admin_users WHERE email = $1",
+			[email],
+		);
+		const user = userResult.rows[0];
+		if (!user) {
+			await recordAuthAttempt(req, "reset_confirm", { identifier: email });
+			return res.status(400).json({ message: "Neplatný email alebo kód." });
+		}
+
+		const codesResult = await pool.query(
+			"SELECT id, code_hash FROM password_reset_codes WHERE user_id = $1 AND used_at IS NULL AND expires_at > NOW() ORDER BY created_at DESC LIMIT 5",
+			[user.id],
+		);
+
+		let matched = null;
+		for (const row of codesResult.rows) {
+			if (await bcrypt.compare(code, row.code_hash)) {
+				matched = row;
+				break;
+			}
+		}
+
+		if (!matched) {
+			await recordAuthAttempt(req, "reset_confirm", { identifier: email });
+			return res
+				.status(400)
+				.json({ message: "Neplatný alebo expirovaný kód." });
+		}
+
+		const passwordHash = await bcrypt.hash(password, 12);
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+			await client.query(
+				"UPDATE admin_users SET password_hash = $1, must_change_password = FALSE, updated_at = NOW() WHERE id = $2",
+				[passwordHash, user.id],
+			);
+			await client.query(
+				"UPDATE password_reset_codes SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL",
+				[user.id],
+			);
+			await client.query("COMMIT");
+		} catch (error) {
+			await client.query("ROLLBACK");
+			console.error(error);
+			return res.status(500).json({ message: "Heslo sa nepodarilo zmeniť." });
+		} finally {
+			client.release();
+		}
+
+		await recordAuthAttempt(req, "reset_confirm", {
+			identifier: email,
+			success: true,
+		});
+
+		res.json({ ok: true });
+	},
+);
+
+function parseRateLimitRule(value) {
+	const maxAttempts = Number(value?.maxAttempts);
+	const windowMin = Number(value?.windowMin);
+
+	if (
+		!Number.isInteger(maxAttempts) ||
+		maxAttempts < 1 ||
+		maxAttempts > 1000 ||
+		!Number.isInteger(windowMin) ||
+		windowMin < 1 ||
+		windowMin > 1440
+	) {
+		return null;
 	}
 
-	res.json({ ok: true });
+	return { maxAttempts, windowMin };
+}
+
+async function getBlockedIps(settings) {
+	const blocked = [];
+
+	for (const [scope, actions] of Object.entries(rateLimitScopes)) {
+		const { maxAttempts, windowMin } = settings[scope];
+		const result = await pool.query(
+			`SELECT ip, COUNT(*)::int AS count, MAX(created_at) AS last_at,
+        CEIL(EXTRACT(EPOCH FROM MIN(created_at) + make_interval(mins => $2::int) - NOW()))::int AS retry_after
+      FROM auth_attempts
+      WHERE action = ANY($1::text[]) AND ${countedAttemptsCondition}
+        AND created_at > NOW() - make_interval(mins => $2::int)
+      GROUP BY ip
+      HAVING COUNT(*) >= $3
+      ORDER BY last_at DESC`,
+			[actions, windowMin, maxAttempts],
+		);
+
+		for (const row of result.rows) {
+			blocked.push({
+				ip: row.ip,
+				scope,
+				attempts: row.count,
+				lastAt: row.last_at,
+				retryAfter: Math.max(1, row.retry_after),
+			});
+		}
+	}
+
+	return blocked;
+}
+
+app.get("/api/admin/security", authenticate, requireAdmin, async (req, res) => {
+	const ip = String(req.query.ip || "").trim();
+	const settings = await getSecuritySettings();
+	const attemptsResult = await pool.query(
+		`SELECT id, ip, action, identifier, success, blocked, user_agent, created_at
+    FROM auth_attempts
+    WHERE ($1 = '' OR ip = $1)
+    ORDER BY created_at DESC, id DESC
+    LIMIT 200`,
+		[ip],
+	);
+
+	res.json({
+		settings,
+		blocked: await getBlockedIps(settings),
+		attempts: attemptsResult.rows.map((row) => ({
+			id: row.id,
+			ip: row.ip,
+			action: row.action,
+			identifier: row.identifier,
+			success: row.success,
+			blocked: row.blocked,
+			userAgent: row.user_agent,
+			createdAt: row.created_at,
+		})),
+	});
 });
+
+app.put(
+	"/api/admin/security/settings",
+	authenticate,
+	requireAdmin,
+	async (req, res) => {
+		const login = parseRateLimitRule(req.body?.login);
+		const reset = parseRateLimitRule(req.body?.reset);
+
+		if (!login || !reset) {
+			return res.status(400).json({
+				message:
+					"Počet pokusov musí byť 1 – 1000 a časové okno 1 – 1440 minút.",
+			});
+		}
+
+		await pool.query(
+			"INSERT INTO security_settings (id, login_max_attempts, login_window_min, reset_max_attempts, reset_window_min) VALUES (1, $1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET login_max_attempts = EXCLUDED.login_max_attempts, login_window_min = EXCLUDED.login_window_min, reset_max_attempts = EXCLUDED.reset_max_attempts, reset_window_min = EXCLUDED.reset_window_min, updated_at = NOW()",
+			[login.maxAttempts, login.windowMin, reset.maxAttempts, reset.windowMin],
+		);
+
+		res.json(await getSecuritySettings());
+	},
+);
+
+app.post(
+	"/api/admin/security/unblock",
+	authenticate,
+	requireAdmin,
+	async (req, res) => {
+		const ip = String(req.body?.ip || "").trim();
+		const scope = String(req.body?.scope || "").trim();
+
+		if (!ip || !rateLimitScopes[scope]) {
+			return res.status(400).json({ message: "Neplatná IP adresa alebo typ." });
+		}
+
+		await clearAuthAttempts(scope, ip);
+		res.json({ ok: true });
+	},
+);
 
 app.use("/api", (_req, res) => {
 	res.status(404).json({ message: "API endpoint neexistuje." });
@@ -1674,7 +1973,17 @@ app.use((error, _req, res, _next) => {
 });
 
 initDatabase()
-	.then(() => {
+	.then(async () => {
+		await purgeOldAuthAttempts();
+		setInterval(
+			() => {
+				purgeOldAuthAttempts().catch((error) =>
+					console.error("Failed to purge auth attempts", error),
+				);
+			},
+			6 * 60 * 60 * 1000,
+		);
+
 		app.listen(port, "0.0.0.0", () => {
 			console.log(`Hero Gym API listening on ${port}`);
 		});

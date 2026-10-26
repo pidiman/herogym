@@ -129,3 +129,27 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   email TEXT NOT NULL UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  id SERIAL PRIMARY KEY,
+  ip TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('login', 'reset_request', 'reset_confirm')),
+  identifier TEXT,
+  success BOOLEAN NOT NULL DEFAULT FALSE,
+  blocked BOOLEAN NOT NULL DEFAULT FALSE,
+  cleared BOOLEAN NOT NULL DEFAULT FALSE,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS auth_attempts_ip_action_idx ON auth_attempts(ip, action, created_at);
+CREATE INDEX IF NOT EXISTS auth_attempts_created_idx ON auth_attempts(created_at);
+
+CREATE TABLE IF NOT EXISTS security_settings (
+  id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  login_max_attempts INT NOT NULL DEFAULT 5,
+  login_window_min INT NOT NULL DEFAULT 15,
+  reset_max_attempts INT NOT NULL DEFAULT 5,
+  reset_window_min INT NOT NULL DEFAULT 15,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

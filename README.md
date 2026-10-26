@@ -41,6 +41,9 @@ V spoločnom Admineri použi server `herogym-db`, používateľa a heslo z `.env
 Admin sekcia je dostupná iba priamou URL `https://hg.pidiman.sk/admin`; vo verejnej stránke nie je prelinkovaná.
 Po prihlásení vie upravovať sekcie `Tréningy`, `Skupinový tréning`, `Cenník`, `Kontakt` a `O nás`.
 
+Login a reset hesla sú chránené rate limitingom podľa IP (predvolene 5 pokusov za 15 min). Admin to nastavuje v záložke `Bezpečnosť`, kde vidí aj posledné pokusy a vie IP odblokovať.
+IP klienta sa berie z `X-Forwarded-For` cez `TRUST_PROXY` (počet dôveryhodných proxy, predvolene `2` = Nginx Proxy Manager + web nginx). Ak API beží bez NPM, nastav `TRUST_PROXY=1`.
+
 Ak už máš `.env` vytvorený zo staršej verzie projektu, doplň:
 
 ```env
